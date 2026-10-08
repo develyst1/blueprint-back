@@ -88,3 +88,24 @@ test("R9: stuckCount is computed on every list", async () => {
   await apply([answerQ001]);
   expect((await listProjects(db)).map((p) => [p.id, p.stuckCount])).toEqual([[project.id, 0]]);
 });
+
+test("AC-B1 + AC-B2: a project keeps the theme id it was created with; none means clean-blue", async () => {
+  const db = await testDb();
+  const gold = await createProject(db, { name: "a", theme: "luxury-gold" });
+  const plain = await createProject(db, { name: "b" });
+  const neon = await createProject(db, { name: "c", theme: "neon-test" });
+  expect([gold.theme, plain.theme, neon.theme]).toEqual(["luxury-gold", "clean-blue", "neon-test"]);
+  const listed = new Map((await listProjects(db)).map((p) => [p.id, p.theme]));
+  expect([listed.get(gold.id), listed.get(plain.id), listed.get(neon.id)]).toEqual(["luxury-gold", "clean-blue", "neon-test"]);
+  expect((await getProject(db, gold.id)).project.theme).toBe("luxury-gold");
+
+  const thai = "ธีม".repeat(21) + "ก";
+  expect(thai.length).toBe(64);
+  const t = await createProject(db, { name: "d", theme: thai });
+  expect(Buffer.from((await getProject(db, t.id)).project.theme).equals(Buffer.from(thai))).toBe(true);
+
+  for (const theme of ["", "   ", "a".repeat(65)]) {
+    expect(await caught(createProject(db, { name: "e", theme }))).toBeInstanceOf(ValidationError);
+  }
+  expect(await listProjects(db)).toHaveLength(4);
+});

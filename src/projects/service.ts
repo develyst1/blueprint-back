@@ -6,13 +6,13 @@ import { loadSpec } from "../spec/store";
 import { computeStuck } from "../spec/stuck";
 import type { Link, Part } from "../spec/types";
 
-export type Project = { id: string; organisationId: string; name: string; createdAt: string };
+export type Project = { id: string; organisationId: string; name: string; createdAt: string; theme: string };
 export type VersionSummary = { parts: number; links: number; partsByKind: Record<string, number> };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const toProject = (r: typeof projects.$inferSelect): Project =>
-  ({ id: r.id, organisationId: r.organisationId, name: r.name, createdAt: r.createdAt.toISOString() });
+  ({ id: r.id, organisationId: r.organisationId, name: r.name, createdAt: r.createdAt.toISOString(), theme: r.theme });
 
 async function projectRow(db: Db, projectId: string) {
   if (!UUID_RE.test(projectId)) throw new NotFound("project");
@@ -21,16 +21,27 @@ async function projectRow(db: Db, projectId: string) {
   return row;
 }
 
-export async function createProject(db: Db, input: { name: string; organisationId?: string }): Promise<Project> {
+export async function createProject(
+  db: Db,
+  input: { name: string; organisationId?: string; theme?: string },
+): Promise<Project> {
   const name = input.name.trim();
   if (name.length === 0) throw new ValidationError(null, "a project needs a name");
+  // Same rule as the API, so a direct caller cannot store what the route would refuse. Kept as given otherwise.
+  if (input.theme !== undefined && (input.theme.trim().length === 0 || input.theme.length > 64)) {
+    throw new ValidationError(null, "a theme id is 1–64 characters and not only spaces");
+  }
   if (input.organisationId !== undefined) {
     const found = UUID_RE.test(input.organisationId)
       && (await db.select({ id: organisations.id }).from(organisations).where(eq(organisations.id, input.organisationId))).length > 0;
     if (!found) throw new NotFound("organisation");
   }
   const [row] = await db.insert(projects)
-    .values({ name, ...(input.organisationId !== undefined ? { organisationId: input.organisationId } : {}) })
+    .values({
+      name,
+      ...(input.organisationId !== undefined ? { organisationId: input.organisationId } : {}),
+      ...(input.theme !== undefined ? { theme: input.theme } : {}),
+    })
     .returning();
   return toProject(row!);
 }

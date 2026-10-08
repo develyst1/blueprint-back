@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uuid,
+  check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uuid,
 } from "drizzle-orm/pg-core";
 
 export const DEFAULT_ORGANISATION_ID = "00000000-0000-0000-0000-000000000001";
@@ -18,7 +18,8 @@ export const projects = pgTable("projects", {
     .references(() => organisations.id),
   name: text("name").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+  theme: text("theme").notNull().default("clean-blue"),
+}, (t) => [check("projects_theme_length", sql`char_length(${t.theme}) between 1 and 64`)]);
 
 export const parts = pgTable("parts", {
   projectId: uuid("project_id").references(() => projects.id),

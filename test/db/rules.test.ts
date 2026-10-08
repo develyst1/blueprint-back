@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { changeSets, links, organisations, parts, projects, versions } from "../../src/db/schema";
 import { testDb } from "../helpers/db";
 
@@ -86,4 +86,16 @@ test("AC-2 base: a Thai title round-trips byte-identical", async () => {
   await db.insert(parts).values({ projectId: p.id, key: "WRK-001", kind: "work", title, origin });
   const [row] = await db.select().from(parts).where(eq(parts.key, "WRK-001"));
   expect(Buffer.from(row!.title).equals(Buffer.from(title))).toBe(true);
+});
+
+test("a confirmed version cannot be truncated", async () => {
+  const db = await testDb();
+  const p = await project(db);
+  const [cs] = await db.insert(changeSets).values({ projectId: p.id, causeKind: "operator" }).returning();
+  await db.insert(versions).values({
+    projectId: p.id, version: 1, confirmedBy: "operator", snapshot: {}, summary: {}, lastChangeSet: cs!.id,
+  });
+  expect(await rejection(db.execute(sql`truncate versions`))).toMatch(/immutable/);
+  expect(await rejection(db.execute(sql`truncate projects cascade`))).toMatch(/immutable/);
+  expect(await db.select().from(versions)).toHaveLength(1);
 });

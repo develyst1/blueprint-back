@@ -15,6 +15,20 @@
       "when": 1791474575422,
       "tag": "0001_db_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791480218178,
+      "tag": "0002_versions_no_truncate",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791481483476,
+      "tag": "0003_careless_drax",
+      "breakpoints": true
     }
   ]
 }

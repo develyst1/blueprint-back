@@ -1,3 +1,4 @@
+import "@hono/zod-openapi"; // extends zod with .openapi() before any schema below is built
 import { z } from "zod";
 import { LINK_KIND_NAMES, PART_KIND_NAMES } from "./registry";
 

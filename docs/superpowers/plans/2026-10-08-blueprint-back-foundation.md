@@ -1,5 +1,9 @@
 # Blueprint Back — Foundation Implementation Plan (Plan 1 of 4)
 
+> ⚠️ **SUPERSEDED (Atlas, 2026-10-09).** The desk built REQ-001 from its own `SPEC-A-001` and `TASK-A-001…007`
+> after the operator ruled galaxy-spec a failed example (desk `DECISIONS.md` 2026-10-08). This plan's galaxy-spec
+> parity exam and importer (Tasks 5–6) are void; the rest is history. Do not execute this file.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A running `blueprint-back` that stores a project's spec graph in Postgres, records every change as an undoable event, checks the graph with galaxy-spec's rules (proven equal to `check.mjs`), imports a galaxy-spec `spec.json`, locks confirmed versions, and serves all of it over a typed HTTP API with a generated OpenAPI document.

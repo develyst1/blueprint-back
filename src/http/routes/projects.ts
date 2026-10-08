@@ -11,6 +11,7 @@ export const ProjectSchema = z.object({
   organisationId: z.string(),
   name: z.string(),
   createdAt: z.string(),
+  theme: z.string(),
 }).openapi("Project");
 
 export const PartSchema = Part.openapi("Part");
@@ -24,7 +25,14 @@ export function projectRoutes(app: OpenAPIHono, db: Db) {
     method: "post",
     path: "/v1/projects",
     request: {
-      body: { ...json(z.object({ name: z.string(), organisationId: z.string().optional() }), "a new project"), required: true },
+      body: {
+        ...json(z.object({
+          name: z.string(),
+          organisationId: z.string().optional(),
+          theme: z.string().min(1).max(64).refine((s) => s.trim().length > 0, "theme is empty").optional(),
+        }), "a new project"),
+        required: true,
+      },
     },
     responses: { 201: json(ProjectSchema, "created"), 400: errors[400], 404: errors[404], 413: errors[413] },
   }), async (c) => c.json(await createProject(db, c.req.valid("json")), 201));

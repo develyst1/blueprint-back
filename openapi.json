@@ -606,13 +606,17 @@
           },
           "organisationId": {
             "type": "string"
+          },
+          "theme": {
+            "type": "string"
           }
         },
         "required": [
           "id",
           "organisationId",
           "name",
-          "createdAt"
+          "createdAt",
+          "theme"
         ],
         "type": "object"
       },
@@ -952,6 +956,11 @@
                     "type": "string"
                   },
                   "organisationId": {
+                    "type": "string"
+                  },
+                  "theme": {
+                    "maxLength": 64,
+                    "minLength": 1,
                     "type": "string"
                   }
                 },

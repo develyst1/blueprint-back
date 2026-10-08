@@ -1,0 +1,2 @@
+ALTER TABLE "projects" ADD COLUMN "theme" text DEFAULT 'clean-blue' NOT NULL;--> statement-breakpoint
+ALTER TABLE "projects" ADD CONSTRAINT "projects_theme_length" CHECK (char_length("projects"."theme") between 1 and 64);

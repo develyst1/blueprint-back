@@ -238,3 +238,22 @@ test("limits: a body over 5 MB is 413 too_large; 5001 changes and an out-of-rang
   expect(spec.parts.map((p: any) => p.key)).toEqual(["STEP-001", "WRK-001"]);
   expect(spec.links).toEqual([]);
 });
+
+test("AC-B1…B3: theme over HTTP — kept, defaulted, and refused when empty or too long", async () => {
+  const { call } = await api();
+  const gold = await call("POST", "/v1/projects", { name: "a", theme: "luxury-gold" });
+  expect(gold.status).toBe(201);
+  expect(gold.body.theme).toBe("luxury-gold");
+  const plain = await call("POST", "/v1/projects", { name: "b" });
+  expect(plain.body.theme).toBe("clean-blue");
+  const list = (await call("GET", "/v1/projects")).body;
+  expect(new Map(list.map((p: any) => [p.id, p.theme])).get(plain.body.id)).toBe("clean-blue");
+  expect((await call("GET", `/v1/projects/${plain.body.id}`)).body.project.theme).toBe("clean-blue");
+
+  for (const theme of ["", "a".repeat(65), "   "]) {
+    const bad = await call("POST", "/v1/projects", { name: "c", theme });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.code).toBe("validation");
+  }
+  expect((await call("GET", "/v1/projects")).body).toHaveLength(list.length);
+});
