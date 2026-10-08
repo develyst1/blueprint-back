@@ -1,0 +1,1542 @@
+{
+  "components": {
+    "parameters": {},
+    "schemas": {
+      "Cause": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "operator",
+              "message",
+              "source"
+            ],
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "Change": {
+        "oneOf": [
+          {
+            "properties": {
+              "body": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "kind": {
+                "enum": [
+                  "work",
+                  "step",
+                  "interaction",
+                  "role",
+                  "screen",
+                  "api",
+                  "system",
+                  "data",
+                  "decision",
+                  "question"
+                ],
+                "type": "string"
+              },
+              "op": {
+                "enum": [
+                  "part.add"
+                ],
+                "type": "string"
+              },
+              "origin": {
+                "properties": {
+                  "channel": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "stamp": {
+                    "enum": [
+                      "operator",
+                      "operator-delegated",
+                      "team-proposed",
+                      "customer-asked",
+                      "customer-validated"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "stamp",
+                  "date"
+                ],
+                "type": "object"
+              },
+              "ref": {
+                "pattern": "^\\$[A-Za-z0-9_]+$",
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "ref",
+              "kind",
+              "title",
+              "body",
+              "origin"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "body": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "key": {
+                "type": "string"
+              },
+              "op": {
+                "enum": [
+                  "part.update"
+                ],
+                "type": "string"
+              },
+              "origin": {
+                "properties": {
+                  "channel": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "stamp": {
+                    "enum": [
+                      "operator",
+                      "operator-delegated",
+                      "team-proposed",
+                      "customer-asked",
+                      "customer-validated"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "stamp",
+                  "date"
+                ],
+                "type": "object"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "key"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "op": {
+                "enum": [
+                  "part.remove"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "key"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "has_step",
+                  "next",
+                  "has_interaction",
+                  "from",
+                  "to",
+                  "carries",
+                  "reads",
+                  "writes",
+                  "shows",
+                  "covers",
+                  "about"
+                ],
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "op": {
+                "enum": [
+                  "link.add"
+                ],
+                "type": "string"
+              },
+              "origin": {
+                "properties": {
+                  "channel": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "stamp": {
+                    "enum": [
+                      "operator",
+                      "operator-delegated",
+                      "team-proposed",
+                      "customer-asked",
+                      "customer-validated"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "stamp",
+                  "date"
+                ],
+                "type": "object"
+              },
+              "position": {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "kind",
+              "from",
+              "to",
+              "origin"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "op": {
+                "enum": [
+                  "link.update"
+                ],
+                "type": "string"
+              },
+              "position": {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "op": {
+                "enum": [
+                  "link.remove"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "id"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Error": {
+        "properties": {
+          "error": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "details": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "FlowchartDiagram": {
+        "properties": {
+          "arrows": {
+            "items": {
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "to": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "label"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "properties": {
+                "ends": {
+                  "type": "boolean"
+                },
+                "isBranch": {
+                  "type": "boolean"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "title",
+                "position",
+                "ends",
+                "isBranch"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes",
+          "arrows"
+        ],
+        "type": "object"
+      },
+      "HistoryEntry": {
+        "properties": {
+          "after": {},
+          "at": {
+            "type": "string"
+          },
+          "before": {},
+          "cause": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "operator",
+                  "message",
+                  "source",
+                  "undo"
+                ],
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "changeSetId": {
+            "type": "string"
+          },
+          "entity": {
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "add",
+              "update",
+              "remove",
+              "restore",
+              "link_add",
+              "link_update",
+              "link_remove"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "changeSetId",
+          "at",
+          "cause",
+          "entity",
+          "op"
+        ],
+        "type": "object"
+      },
+      "Link": {
+        "properties": {
+          "fromKey": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "has_step",
+              "next",
+              "has_interaction",
+              "from",
+              "to",
+              "carries",
+              "reads",
+              "writes",
+              "shows",
+              "covers",
+              "about"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "properties": {
+              "channel": {
+                "type": "string"
+              },
+              "date": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "stamp": {
+                "enum": [
+                  "operator",
+                  "operator-delegated",
+                  "team-proposed",
+                  "customer-asked",
+                  "customer-validated"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "stamp",
+              "date"
+            ],
+            "type": "object"
+          },
+          "position": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "toKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "fromKey",
+          "toKey",
+          "position",
+          "label",
+          "origin"
+        ],
+        "type": "object"
+      },
+      "Part": {
+        "properties": {
+          "body": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "createdIn": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "work",
+              "step",
+              "interaction",
+              "role",
+              "screen",
+              "api",
+              "system",
+              "data",
+              "decision",
+              "question"
+            ],
+            "type": "string"
+          },
+          "origin": {
+            "properties": {
+              "channel": {
+                "type": "string"
+              },
+              "date": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "stamp": {
+                "enum": [
+                  "operator",
+                  "operator-delegated",
+                  "team-proposed",
+                  "customer-asked",
+                  "customer-validated"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "stamp",
+              "date"
+            ],
+            "type": "object"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "title",
+          "body",
+          "origin",
+          "createdIn"
+        ],
+        "type": "object"
+      },
+      "Project": {
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organisationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organisationId",
+          "name",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "SequenceDiagram": {
+        "properties": {
+          "messages": {
+            "items": {
+              "properties": {
+                "from": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "key": {
+                  "type": "string"
+                },
+                "reply": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "from",
+                "to",
+                "text",
+                "reply"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "participants": {
+            "items": {
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "work",
+                    "step",
+                    "interaction",
+                    "role",
+                    "screen",
+                    "api",
+                    "system",
+                    "data",
+                    "decision",
+                    "question"
+                  ],
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "kind",
+                "title"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "participants",
+          "messages"
+        ],
+        "type": "object"
+      },
+      "StuckItem": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "open_question",
+              "unlinked_part",
+              "flow_break",
+              "unconfirmed_guess",
+              "screen_without_api"
+            ],
+            "type": "string"
+          },
+          "linkId": {
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "unreachable",
+              "dead_end",
+              "unlabelled_branch",
+              "no_interactions",
+              "incomplete_interaction"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "key",
+          "title"
+        ],
+        "type": "object"
+      },
+      "SwimlaneDiagram": {
+        "properties": {
+          "lanes": {
+            "items": {
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "work",
+                    "step",
+                    "interaction",
+                    "role",
+                    "screen",
+                    "api",
+                    "system",
+                    "data",
+                    "decision",
+                    "question"
+                  ],
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "kind",
+                "title"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "properties": {
+                "lanes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "step": {
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "title",
+                    "position"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "step",
+                "lanes"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "lanes",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "Version": {
+        "properties": {
+          "confirmedAt": {
+            "type": "string"
+          },
+          "confirmedBy": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "properties": {
+              "links": {
+                "type": "integer"
+              },
+              "parts": {
+                "type": "integer"
+              },
+              "partsByKind": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "parts",
+              "links",
+              "partsByKind"
+            ],
+            "type": "object"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "confirmedAt",
+          "confirmedBy",
+          "parts",
+          "links",
+          "summary"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Blueprint API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/openapi.json": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {},
+                  "properties": {
+                    "openapi": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "openapi"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "this API's OpenAPI 3.1 document"
+          }
+        }
+      }
+    },
+    "/v1/projects": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/Project"
+                      },
+                      {
+                        "properties": {
+                          "stuckCount": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "stuckCount"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "every project, newest first"
+          }
+        }
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "organisationId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "a new project",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            },
+            "description": "created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "too_large"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "links": {
+                      "items": {
+                        "$ref": "#/components/schemas/Link"
+                      },
+                      "type": "array"
+                    },
+                    "parts": {
+                      "items": {
+                        "$ref": "#/components/schemas/Part"
+                      },
+                      "type": "array"
+                    },
+                    "project": {
+                      "$ref": "#/components/schemas/Project"
+                    }
+                  },
+                  "required": [
+                    "project",
+                    "parts",
+                    "links"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "the live spec"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/change-sets": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "cause": {
+                    "$ref": "#/components/schemas/Cause"
+                  },
+                  "changes": {
+                    "items": {
+                      "$ref": "#/components/schemas/Change"
+                    },
+                    "maxItems": 5000,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "cause",
+                  "changes"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "changes applied all or nothing",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "changeSetId": {
+                      "type": "string"
+                    },
+                    "keys": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "changeSetId",
+                    "keys"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "applied; temp refs → new keys"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "too_large"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/change-sets/{changeSetId}/undo": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "changeSetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "changeSetId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "changeSetId"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "the undo, as a new change set"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "undo_conflict · confirm_blocked · nothing_to_confirm"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/diagrams/{kind}/{key}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "sequence",
+                "swimlane",
+                "flowchart"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SequenceDiagram"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SwimlaneDiagram"
+                    },
+                    {
+                      "$ref": "#/components/schemas/FlowchartDiagram"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "drawing data, projected from parts and links on this read"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/parts/{key}/history": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HistoryEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "every change to the part and to links touching it, oldest first"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/stuck": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/StuckItem"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "what is stuck, computed on this read"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/versions": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "confirmedBy": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "confirmedBy"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "who confirms",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "version"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "confirmed and frozen"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "undo_conflict · confirm_blocked · nothing_to_confirm"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "too_large"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/versions/{version}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Version"
+                }
+              }
+            },
+            "description": "a confirmed version, read from its frozen row"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}
