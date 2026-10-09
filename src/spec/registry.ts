@@ -56,6 +56,21 @@ export const PART_KINDS = {
       proposedAnswer: z.string().optional(),
       status: z.enum(["open", "answered", "parked"]).default("open"),
       answer: z.string().optional(),
+      cases: z.array(z.string()).default([]),
+      // REQ-003 Addendum A (TASK-A-033): why the user parked it, and who proposed the answer when the model suggested
+      // one. The stamp list is types.ts `Stamp` — copied, because types.ts imports this file (a test keeps them equal).
+      parkedReason: z.string().optional(),
+      proposedAnswerStamp: z.enum(["operator", "operator-delegated", "team-proposed", "customer-asked", "customer-validated"]).optional(),
+    }),
+  },
+  // REQ-003: two things that disagree, found by the chatbot; linked to what it is between by `conflicts`.
+  contradiction: {
+    prefix: "CON",
+    body: z.strictObject({
+      note: z.string().min(1),
+      sourceId: z.string().uuid().optional(),
+      quote: z.string().optional(),
+      status: z.enum(["open", "resolved"]).default("open"),
     }),
   },
 } as const;
@@ -84,6 +99,7 @@ export const LINK_KINDS = {
   shows: { from: ["screen"], to: ["data"], ordered: false, labelled: false },
   covers: { from: ["decision"], to: "any", ordered: false, labelled: false },
   about: { from: ["question"], to: "any", ordered: false, labelled: false },
+  conflicts: { from: ["contradiction"], to: "any", ordered: false, labelled: false },
 } as const satisfies Record<string, LinkRule>;
 
 export type LinkKind = keyof typeof LINK_KINDS;

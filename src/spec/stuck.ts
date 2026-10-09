@@ -4,7 +4,7 @@ import type { Link, Part, StuckItem } from "./types";
 // "What is stuck" (SPEC-A-001, REQ-001 R5) — computed from the live spec on every read, never stored.
 
 const KIND_ORDER: StuckItem["kind"][] = [
-  "open_question", "unlinked_part", "flow_break", "unconfirmed_guess", "screen_without_api",
+  "open_question", "unlinked_part", "flow_break", "unconfirmed_guess", "screen_without_api", "contradiction",
 ];
 const REASON_ORDER: NonNullable<StuckItem["reason"]>[] = [
   "unreachable", "dead_end", "unlabelled_branch", "no_interactions", "incomplete_interaction",
@@ -61,17 +61,23 @@ function screensWithoutApi(spec: Spec, partByKey: Map<string, Part>): StuckItem[
 export function computeStuck(spec: Spec): StuckItem[] {
   const partByKey = new Map(spec.parts.map((p) => [p.key, p]));
   const linked = new Set(spec.links.flatMap((l) => [l.fromKey, l.toKey]));
+  // A contradiction is reported as itself only — never as unlinked or as an unconfirmed guess (nor are its links).
+  const isContradiction = (key: string) => partByKey.get(key)?.kind === "contradiction";
   const items: StuckItem[] = [
     ...spec.parts.filter((p) => p.kind === "question" && p.body.status === "open")
       .map((p) => ({ kind: "open_question" as const, key: p.key, title: p.title })),
-    ...spec.parts.filter((p) => p.kind !== "question" && !linked.has(p.key))
+    ...spec.parts.filter((p) => p.kind !== "question" && p.kind !== "contradiction" && !linked.has(p.key))
       .map((p) => ({ kind: "unlinked_part" as const, key: p.key, title: p.title })),
     ...flowBreaks(spec, partByKey),
-    ...spec.parts.filter((p) => p.origin.stamp === "team-proposed")
+    ...spec.parts.filter((p) => p.origin.stamp === "team-proposed" && p.kind !== "contradiction")
       .map((p) => ({ kind: "unconfirmed_guess" as const, key: p.key, title: p.title })),
-    ...spec.links.filter((l) => l.origin.stamp === "team-proposed")
+    ...spec.links.filter((l) => l.origin.stamp === "team-proposed" && !isContradiction(l.fromKey))
       .map((l) => ({ kind: "unconfirmed_guess" as const, key: l.fromKey, title: partByKey.get(l.fromKey)!.title, linkId: l.id })),
     ...screensWithoutApi(spec, partByKey),
+    ...spec.parts.filter((p) => p.kind === "contradiction" && p.body.status === "open").map((p) => ({
+      kind: "contradiction" as const, key: p.key, title: p.title,
+      between: spec.links.filter((l) => l.kind === "conflicts" && l.fromKey === p.key).map((l) => l.toKey).sort(compareKeys),
+    })),
   ];
 
   // A step in two works would be listed twice — keep one.

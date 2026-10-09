@@ -1,6 +1,6 @@
 import { PART_KINDS, type PartKind } from "./registry";
 
-export const KEY_RE = /^(WRK|STEP|INT|ROLE|SCR|API|SYS|DATA|DEC|Q)-\d{3,}$/;
+export const KEY_RE = /^(WRK|STEP|INT|ROLE|SCR|API|SYS|DATA|DEC|Q|CON)-\d{3,}$/;
 
 const KIND_BY_PREFIX = new Map<string, PartKind>(
   (Object.keys(PART_KINDS) as PartKind[]).map((kind) => [PART_KINDS[kind].prefix, kind]),

@@ -40,7 +40,8 @@
                   "system",
                   "data",
                   "decision",
-                  "question"
+                  "question",
+                  "contradiction"
                 ],
                 "type": "string"
               },
@@ -60,6 +61,10 @@
                     "type": "string"
                   },
                   "note": {
+                    "type": "string"
+                  },
+                  "sourceId": {
+                    "format": "uuid",
                     "type": "string"
                   },
                   "stamp": {
@@ -124,6 +129,10 @@
                   "note": {
                     "type": "string"
                   },
+                  "sourceId": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
                   "stamp": {
                     "enum": [
                       "operator",
@@ -186,7 +195,8 @@
                   "writes",
                   "shows",
                   "covers",
-                  "about"
+                  "about",
+                  "conflicts"
                 ],
                 "type": "string"
               },
@@ -209,6 +219,10 @@
                     "type": "string"
                   },
                   "note": {
+                    "type": "string"
+                  },
+                  "sourceId": {
+                    "format": "uuid",
                     "type": "string"
                   },
                   "stamp": {
@@ -291,6 +305,71 @@
             "type": "object"
           }
         ]
+      },
+      "ChangeSetRead": {
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "cause": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "ref"
+            ],
+            "type": "object"
+          },
+          "counts": {
+            "properties": {
+              "added": {
+                "type": "integer"
+              },
+              "removed": {
+                "type": "integer"
+              },
+              "updated": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "added",
+              "updated",
+              "removed"
+            ],
+            "type": "object"
+          },
+          "entities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "undoable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "cause",
+          "counts",
+          "entities",
+          "undoable"
+        ],
+        "type": "object"
       },
       "Error": {
         "properties": {
@@ -386,6 +465,103 @@
         ],
         "type": "object"
       },
+      "FrozenQuiz": {
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "properties": {
+                "answer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mark": {
+                  "enum": [
+                    "right",
+                    "wrong",
+                    null
+                  ],
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "notInSpec": {
+                  "type": "boolean"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "parts": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "position": {
+                  "type": "integer"
+                },
+                "question": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "answered",
+                    "failed"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "position",
+                "question",
+                "status",
+                "answer",
+                "notInSpec",
+                "parts",
+                "mark",
+                "note"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "marked": {
+            "type": "integer"
+          },
+          "right": {
+            "type": "integer"
+          },
+          "score": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "items",
+          "right",
+          "marked",
+          "score"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
       "HistoryEntry": {
         "properties": {
           "after": {},
@@ -461,7 +637,8 @@
               "writes",
               "shows",
               "covers",
-              "about"
+              "about",
+              "conflicts"
             ],
             "type": "string"
           },
@@ -481,6 +658,10 @@
                 "type": "string"
               },
               "note": {
+                "type": "string"
+              },
+              "sourceId": {
+                "format": "uuid",
                 "type": "string"
               },
               "stamp": {
@@ -523,6 +704,146 @@
         ],
         "type": "object"
       },
+      "Located": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "matched": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "score": {
+                  "type": "number"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "where": {
+                  "items": {
+                    "enum": [
+                      "title",
+                      "body",
+                      "link label"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "key",
+                "kind",
+                "title",
+                "score",
+                "matched",
+                "where"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "notInSpec": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "notInSpec",
+          "candidates"
+        ],
+        "type": "object"
+      },
+      "Message": {
+        "properties": {
+          "changeSetId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "creativity": {
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "bot",
+              "caw"
+            ],
+            "type": "string"
+          },
+          "roundStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "content",
+          "model",
+          "creativity",
+          "roundStatus",
+          "changeSetId",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "Models": {
+        "properties": {
+          "models": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
+          "tiers": {
+            "items": {
+              "enum": [
+                "small",
+                "medium",
+                "flagship"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "models",
+          "tiers"
+        ],
+        "type": "object"
+      },
       "Part": {
         "properties": {
           "body": {
@@ -546,7 +867,8 @@
               "system",
               "data",
               "decision",
-              "question"
+              "question",
+              "contradiction"
             ],
             "type": "string"
           },
@@ -560,6 +882,10 @@
                 "type": "string"
               },
               "note": {
+                "type": "string"
+              },
+              "sourceId": {
+                "format": "uuid",
                 "type": "string"
               },
               "stamp": {
@@ -593,12 +919,186 @@
         ],
         "type": "object"
       },
+      "PartContext": {
+        "properties": {
+          "confirmedAt": {
+            "type": "string"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array"
+          },
+          "flows": {
+            "items": {
+              "properties": {
+                "at": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "steps": {
+                  "items": {
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "position": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "title",
+                      "position"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "work": {
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "title"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "work",
+                "steps",
+                "at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "neighbours": {
+            "items": {
+              "properties": {
+                "direction": {
+                  "enum": [
+                    "out",
+                    "in"
+                  ],
+                  "type": "string"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "linkKind": {
+                  "enum": [
+                    "has_step",
+                    "next",
+                    "has_interaction",
+                    "from",
+                    "to",
+                    "carries",
+                    "reads",
+                    "writes",
+                    "shows",
+                    "covers",
+                    "about",
+                    "conflicts"
+                  ],
+                  "type": "string"
+                },
+                "part": {
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "kind",
+                    "title"
+                  ],
+                  "type": "object"
+                },
+                "position": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "direction",
+                "linkKind",
+                "label",
+                "position",
+                "part"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "part": {
+            "$ref": "#/components/schemas/Part"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "projectId",
+          "version",
+          "confirmedAt",
+          "part",
+          "neighbours",
+          "decisions",
+          "flows",
+          "questions"
+        ],
+        "type": "object"
+      },
       "Project": {
         "properties": {
           "createdAt": {
             "type": "string"
           },
+          "creativity": {
+            "type": "number"
+          },
           "id": {
+            "type": "string"
+          },
+          "model": {
             "type": "string"
           },
           "name": {
@@ -616,7 +1116,184 @@
           "organisationId",
           "name",
           "createdAt",
-          "theme"
+          "theme",
+          "model",
+          "creativity"
+        ],
+        "type": "object"
+      },
+      "Quiz": {
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuizItem"
+            },
+            "type": "array"
+          },
+          "marked": {
+            "type": "integer"
+          },
+          "right": {
+            "type": "integer"
+          },
+          "score": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stale": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "stale",
+          "items",
+          "right",
+          "marked",
+          "score"
+        ],
+        "type": "object"
+      },
+      "QuizItem": {
+        "properties": {
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mark": {
+            "enum": [
+              "right",
+              "wrong",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notInSpec": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "question": {
+            "type": "string"
+          },
+          "questionKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "answered",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "question",
+          "status",
+          "answer",
+          "notInSpec",
+          "parts",
+          "mark",
+          "note",
+          "questionKey",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "Round": {
+        "properties": {
+          "changeSetId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contradictions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "failedSources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "messageIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "questions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reply": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "applied",
+              "no_changes",
+              "changes_rejected",
+              "bot_could_not_answer"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reply",
+          "changeSetId",
+          "questions",
+          "contradictions",
+          "failedSources",
+          "messageIds"
         ],
         "type": "object"
       },
@@ -678,7 +1355,8 @@
                     "system",
                     "data",
                     "decision",
-                    "question"
+                    "question",
+                    "contradiction"
                   ],
                   "type": "string"
                 },
@@ -702,8 +1380,107 @@
         ],
         "type": "object"
       },
+      "Source": {
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "file",
+              "link"
+            ],
+            "type": "string"
+          },
+          "mime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "origin": {
+            "properties": {
+              "channel": {
+                "type": "string"
+              },
+              "date": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "sourceId": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "stamp": {
+                "enum": [
+                  "operator",
+                  "operator-delegated",
+                  "team-proposed",
+                  "customer-asked",
+                  "customer-validated"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "stamp",
+              "date"
+            ],
+            "type": "object"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "read",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "mime",
+          "sha256",
+          "size",
+          "status",
+          "origin",
+          "createdAt"
+        ],
+        "type": "object"
+      },
       "StuckItem": {
         "properties": {
+          "between": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "key": {
             "type": "string"
           },
@@ -713,7 +1490,8 @@
               "unlinked_part",
               "flow_break",
               "unconfirmed_guess",
-              "screen_without_api"
+              "screen_without_api",
+              "contradiction"
             ],
             "type": "string"
           },
@@ -760,7 +1538,8 @@
                     "system",
                     "data",
                     "decision",
-                    "question"
+                    "question",
+                    "contradiction"
                   ],
                   "type": "string"
                 },
@@ -844,6 +1623,9 @@
             },
             "type": "array"
           },
+          "quiz": {
+            "$ref": "#/components/schemas/FrozenQuiz"
+          },
           "summary": {
             "properties": {
               "links": {
@@ -876,7 +1658,113 @@
           "confirmedBy",
           "parts",
           "links",
-          "summary"
+          "summary",
+          "quiz"
+        ],
+        "type": "object"
+      },
+      "VersionFeed": {
+        "properties": {
+          "changedSinceLatest": {
+            "type": "boolean"
+          },
+          "latest": {
+            "properties": {
+              "confirmedAt": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "version",
+              "confirmedAt"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "versions": {
+            "items": {
+              "properties": {
+                "changes": {
+                  "properties": {
+                    "added": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "changed": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "removed": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "added",
+                    "changed",
+                    "removed"
+                  ],
+                  "type": "object"
+                },
+                "confirmedAt": {
+                  "type": "string"
+                },
+                "confirmedBy": {
+                  "type": "string"
+                },
+                "summary": {
+                  "properties": {
+                    "links": {
+                      "type": "integer"
+                    },
+                    "parts": {
+                      "type": "integer"
+                    },
+                    "partsByKind": {
+                      "additionalProperties": {
+                        "type": "integer"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "parts",
+                    "links",
+                    "partsByKind"
+                  ],
+                  "type": "object"
+                },
+                "version": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "version",
+                "confirmedAt",
+                "confirmedBy",
+                "summary",
+                "changes"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "versions",
+          "latest",
+          "changedSinceLatest"
         ],
         "type": "object"
       }
@@ -888,6 +1776,32 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/v1/models": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Models"
+                }
+              }
+            },
+            "description": "the models the gateway offers right now (read live on every call), and the tiers"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "gateway_unavailable"
+          }
+        }
+      }
+    },
     "/v1/openapi.json": {
       "get": {
         "responses": {
@@ -927,12 +1841,16 @@
                       },
                       {
                         "properties": {
+                          "partCount": {
+                            "type": "integer"
+                          },
                           "stuckCount": {
                             "type": "integer"
                           }
                         },
                         "required": [
-                          "stuckCount"
+                          "stuckCount",
+                          "partCount"
                         ],
                         "type": "object"
                       }
@@ -1074,6 +1992,162 @@
             "description": "not_found"
           }
         }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "creativity": {
+                    "maximum": 2,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "model": {
+                    "description": "\"tier:small|medium|flagship\" or \"<provider>/<model>\" from GET /v1/models",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "description": "the chat model and/or creativity (temperature 0–2); at least one",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            },
+            "description": "the project as it is now"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "gateway_unavailable"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/amendments": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "about": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "type": "array"
+                  },
+                  "from": {
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "request": {
+                    "maxLength": 4000,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from",
+                  "request"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "a change request from a CAW worker — lands in the chat; the spec is not touched",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            },
+            "description": "the `caw` chat message"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
       }
     },
     "/v1/projects/{projectId}/change-sets": {
@@ -1174,6 +2248,50 @@
         }
       }
     },
+    "/v1/projects/{projectId}/change-sets/{changeSetId}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "changeSetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetRead"
+                }
+              }
+            },
+            "description": "one change set: counts from its changes, and whether undo would be accepted now"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
     "/v1/projects/{projectId}/change-sets/{changeSetId}/undo": {
       "post": {
         "parameters": [
@@ -1231,7 +2349,7 @@
                 }
               }
             },
-            "description": "undo_conflict · confirm_blocked · nothing_to_confirm"
+            "description": "undo_conflict · confirm_blocked · nothing_to_confirm · already_confirmed · already_added · quiz_missing · quiz_not_100 · quiz_stale · quiz_closed · quiz_full · already_marked · not_markable · nothing_to_retry"
           }
         }
       }
@@ -1313,6 +2431,143 @@
         }
       }
     },
+    "/v1/projects/{projectId}/locate": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "request": {
+                    "maxLength": 1000,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "a change request in words",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Located"
+                }
+              }
+            },
+            "description": "the parts of the latest confirmed version the request touches, best first — or notInSpec"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "no_confirmed_version"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/messages": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Message"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "the newest `limit` messages, oldest first"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
     "/v1/projects/{projectId}/parts/{key}/history": {
       "get": {
         "parameters": [
@@ -1346,6 +2601,701 @@
               }
             },
             "description": "every change to the part and to links touching it, oldest first"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/quizzes": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Quiz"
+                }
+              }
+            },
+            "description": "a new quiz — it becomes the latest"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/quizzes/latest": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Quiz"
+                }
+              }
+            },
+            "description": "the latest quiz, with its score and whether it is stale"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/quizzes/{quizId}/items/{itemId}/mark": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "quizId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "mark": {
+                    "enum": [
+                      "right",
+                      "wrong"
+                    ],
+                    "type": "string"
+                  },
+                  "note": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "mark"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "right or wrong (final); a wrong answer becomes an open question in the spec",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuizItem"
+                }
+              }
+            },
+            "description": "the marked item"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "undo_conflict · confirm_blocked · nothing_to_confirm · already_confirmed · already_added · quiz_missing · quiz_not_100 · quiz_stale · quiz_closed · quiz_full · already_marked · not_markable · nothing_to_retry"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/quizzes/{quizId}/questions": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "quizId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "question": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "question"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "one question, answered from the spec only",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuizItem"
+                }
+              }
+            },
+            "description": "the item — `answered`, or `failed` when the bot could not answer (both 200)"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "undo_conflict · confirm_blocked · nothing_to_confirm · already_confirmed · already_added · quiz_missing · quiz_not_100 · quiz_stale · quiz_closed · quiz_full · already_marked · not_markable · nothing_to_retry"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/rounds": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "accept": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "type": "array"
+                  },
+                  "answers": {
+                    "items": {
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "text"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 20,
+                    "type": "array"
+                  },
+                  "message": {
+                    "maxLength": 20000,
+                    "type": "string"
+                  },
+                  "park": {
+                    "items": {
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "maxLength": 500,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "key"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 20,
+                    "type": "array"
+                  },
+                  "retry": {
+                    "enum": [
+                      true
+                    ],
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "description": "one chat turn: a message, accepted question keys, answers in the user's own words, questions to park — any mix; or `retry: true` alone to ask the bot again for the newest turn that failed",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Round"
+                }
+              }
+            },
+            "description": "the round — every outcome is 200, including a bot that could not answer"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "undo_conflict · confirm_blocked · nothing_to_confirm · already_confirmed · already_added · quiz_missing · quiz_not_100 · quiz_stale · quiz_closed · quiz_full · already_marked · not_markable · nothing_to_retry"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/sources": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": [
+                          "file",
+                          "link"
+                        ],
+                        "type": "string"
+                      },
+                      "mime": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "note": {
+                        "type": "string"
+                      },
+                      "origin": {
+                        "properties": {
+                          "channel": {
+                            "type": "string"
+                          },
+                          "date": {
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                            "type": "string"
+                          },
+                          "note": {
+                            "type": "string"
+                          },
+                          "sourceId": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "stamp": {
+                            "enum": [
+                              "operator",
+                              "operator-delegated",
+                              "team-proposed",
+                              "customer-asked",
+                              "customer-validated"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "stamp",
+                          "date"
+                        ],
+                        "type": "object"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer"
+                      },
+                      "status": {
+                        "enum": [
+                          "read",
+                          "failed"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "kind",
+                      "name",
+                      "mime",
+                      "sha256",
+                      "size",
+                      "status",
+                      "origin",
+                      "createdAt"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "every source, oldest first, without text"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "link": {
+                    "type": "string"
+                  },
+                  "origin": {
+                    "properties": {
+                      "channel": {
+                        "type": "string"
+                      },
+                      "date": {
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                        "type": "string"
+                      },
+                      "note": {
+                        "type": "string"
+                      },
+                      "sourceId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "stamp": {
+                        "enum": [
+                          "operator",
+                          "operator-delegated",
+                          "team-proposed",
+                          "customer-asked",
+                          "customer-validated"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "stamp",
+                      "date"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "link",
+                  "origin"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "origin": {
+                    "description": "an Origin as a JSON string",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "origin"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "a file (multipart: `file` + `origin` as a JSON string) or a link (JSON)",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Source"
+                }
+              }
+            },
+            "description": "added — `status` says whether its text could be read"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "undo_conflict · confirm_blocked · nothing_to_confirm · already_confirmed · already_added · quiz_missing · quiz_not_100 · quiz_stale · quiz_closed · quiz_full · already_marked · not_markable · nothing_to_retry"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "too_large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "unsupported_file"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/sources/{sourceId}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sourceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Source"
+                }
+              }
+            },
+            "description": "one source with its text"
           },
           "404": {
             "content": {
@@ -1408,6 +3358,63 @@
       }
     },
     "/v1/projects/{projectId}/versions": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionFeed"
+                }
+              }
+            },
+            "description": "confirmed versions after `after`, ascending, each with the keys added, changed and removed since the one before"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      },
       "post": {
         "parameters": [
           {
@@ -1486,7 +3493,7 @@
                 }
               }
             },
-            "description": "undo_conflict · confirm_blocked · nothing_to_confirm"
+            "description": "undo_conflict · confirm_blocked · nothing_to_confirm · already_confirmed · already_added · quiz_missing · quiz_not_100 · quiz_stale · quiz_closed · quiz_full · already_marked · not_markable · nothing_to_retry"
           },
           "413": {
             "content": {
@@ -1532,6 +3539,59 @@
               }
             },
             "description": "a confirmed version, read from its frozen row"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/versions/{version}/parts/{key}/context": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartContext"
+                }
+              }
+            },
+            "description": "a part as frozen in a confirmed version, with its neighbours, decisions, flows and open questions"
           },
           "404": {
             "content": {

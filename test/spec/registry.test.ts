@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { checkLink, PART_KINDS, type PartKind } from "../../src/spec/registry";
-import { Change, Origin, Part } from "../../src/spec/types";
+import { Change, Origin, Part, Stamp } from "../../src/spec/types";
 
 const validBodies: Record<PartKind, unknown> = {
   work: { goal: "จองห้องได้เอง" },
@@ -13,6 +13,7 @@ const validBodies: Record<PartKind, unknown> = {
   data: { fields: [{ name: "roomId", type: "uuid" }] },
   decision: { rule: "ห้องที่จุเกิน 10 คนต้องให้ผู้ดูแลอนุมัติ", cases: ["ห้องใหญ่ → อนุมัติ"], open: "ห้องพอดี 10 คน" },
   question: { text: "ผู้ดูแลไม่ตอบใน 24 ชม. ทำอย่างไร", proposedAnswer: "ยกเลิกอัตโนมัติ" },
+  contradiction: { note: "เอกสารบอกว่าไม่ต้องอนุมัติ แต่ DEC-001 บอกว่าต้อง", quote: "จองได้ทันที" },
 };
 
 for (const kind of Object.keys(PART_KINDS) as PartKind[]) {
@@ -25,7 +26,7 @@ for (const kind of Object.keys(PART_KINDS) as PartKind[]) {
 
 test("body defaults are filled in", () => {
   expect(PART_KINDS.step.body.parse({})).toEqual({ ends: false });
-  expect(PART_KINDS.question.body.parse({ text: "x" })).toEqual({ text: "x", status: "open" });
+  expect(PART_KINDS.question.body.parse({ text: "x" })).toEqual({ text: "x", status: "open", cases: [] });
 });
 
 test("Origin: channel and note rules, unknown stamp", () => {
@@ -69,4 +70,26 @@ test("Change: the six ops, and part.add refs look like $name", () => {
   expect(Change.safeParse({ op: "link.update", id: "00000000-0000-0000-0000-000000000009", position: 2 }).success).toBe(true);
   expect(Change.safeParse({ op: "link.remove", id: "00000000-0000-0000-0000-000000000009" }).success).toBe(true);
   expect(Change.safeParse({ op: "part.rename", key: "STEP-001" }).success).toBe(false);
+});
+
+test("REQ-003 R1: contradiction body, conflicts link, question cases", () => {
+  expect(PART_KINDS.contradiction.body.parse({ note: "n" })).toEqual({ note: "n", status: "open" });
+  expect(PART_KINDS.contradiction.body.safeParse({ note: "n", sourceId: "3f2b8c1e-9a4d-4c2e-8b1f-6d7e5a4c3b2a" }).success).toBe(true);
+  expect(PART_KINDS.contradiction.body.safeParse({ note: "n", extra: 1 }).success).toBe(false);
+  expect(PART_KINDS.contradiction.body.safeParse({ note: "" }).success).toBe(false);
+  expect(checkLink({ kind: "conflicts", fromKind: "contradiction", toKind: "step" })).toBeNull();
+  expect(checkLink({ kind: "conflicts", fromKind: "step", toKind: "step" })).not.toBeNull();
+  expect(checkLink({ kind: "conflicts", fromKind: "contradiction", toKind: "step", label: "x" })).not.toBeNull();
+  expect(PART_KINDS.question.body.parse({ text: "x" })).toEqual({ text: "x", status: "open", cases: [] });
+  expect(Origin.safeParse({ stamp: "operator", date: "2026-10-09", sourceId: "3f2b8c1e-9a4d-4c2e-8b1f-6d7e5a4c3b2a" }).success).toBe(true);
+  expect(Origin.safeParse({ stamp: "operator", date: "2026-10-09", sourceId: "nope" }).success).toBe(false);
+});
+
+test("A-033: a question body takes parkedReason and proposedAnswerStamp (a real stamp only)", () => {
+  const body = PART_KINDS.question.body;
+  expect(body.safeParse({ text: "q", status: "parked", parkedReason: "ยังไม่ต้อง" }).success).toBe(true);
+  expect(body.safeParse({ text: "q", proposedAnswer: "a", proposedAnswerStamp: "team-proposed" }).success).toBe(true);
+  expect(body.safeParse({ text: "q", proposedAnswer: "a", proposedAnswerStamp: "model" }).success).toBe(false);
+  // the registry keeps its own copy of the stamp list (types.ts imports the registry) — it must stay the same list
+  expect(body.shape.proposedAnswerStamp.unwrap().options).toEqual(Stamp.options);
 });

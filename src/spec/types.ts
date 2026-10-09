@@ -13,6 +13,8 @@ export const Origin = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   channel: z.string().optional(),
   note: z.string().optional(),
+  // REQ-003: the source this came from, when it came from one.
+  sourceId: z.string().uuid().optional(),
 }).superRefine((o, ctx) => {
   if (o.stamp === "customer-validated" && !o.channel) {
     ctx.addIssue({ code: "custom", path: ["channel"], message: "customer-validated needs a channel" });
@@ -90,11 +92,13 @@ export const Cause = z.object({
 export type Cause = z.infer<typeof Cause>;
 
 export const StuckItem = z.object({
-  kind: z.enum(["open_question", "unlinked_part", "flow_break", "unconfirmed_guess", "screen_without_api"]),
+  kind: z.enum(["open_question", "unlinked_part", "flow_break", "unconfirmed_guess", "screen_without_api", "contradiction"]),
   reason: z.enum(["unreachable", "dead_end", "unlabelled_branch", "no_interactions", "incomplete_interaction"]).optional(),
   key: z.string(),
   title: z.string(),
   linkId: z.string().optional(),
+  // `contradiction` only: the keys it is between.
+  between: z.array(z.string()).optional(),
 });
 export type StuckItem = z.infer<typeof StuckItem>;
 

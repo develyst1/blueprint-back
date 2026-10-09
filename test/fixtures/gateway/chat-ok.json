@@ -1,0 +1,1 @@
+{"success":true,"data":{"provider":"openai","model":"gpt-4.1-mini","content":"สวัสดีครับ ห้องใหญ่ต้องให้ผู้ดูแลอนุมัติ","usage":{"prompt_tokens":42,"completion_tokens":12,"total_tokens":54},"latency_ms":812}}

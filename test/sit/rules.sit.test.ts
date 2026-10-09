@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { count, eq, sql } from "drizzle-orm";
 import { createDb, type Db } from "../../src/db/client";
-import { changeSets, links, organisations, parts, projects, versions } from "../../src/db/schema";
+import { changes, changeSets, links, messages, organisations, parts, projects, quizItems, quizzes, sources, versions } from "../../src/db/schema";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -62,6 +62,23 @@ describe.skipIf(process.env.BLUEPRINT_SIT !== "1")("SIT Postgres rules (skipped 
       return e;
     }
   }
+
+  // Rows per table — printed at the start and the end of the run: equal means nothing was left behind.
+  async function rowCounts(): Promise<string> {
+    const tables = { projects, sources, messages, change_sets: changeSets, changes, parts, links, versions, quizzes, quiz_items: quizItems };
+    const out: string[] = [];
+    for (const [name, table] of Object.entries(tables)) {
+      const [{ n }] = await db.select({ n: count() }).from(table);
+      out.push(`${name}=${n}`);
+    }
+    return out.join(" ");
+  }
+  let countsBefore = "";
+
+  test("0. row counts before the run", async () => {
+    try { countsBefore = await rowCounts(); } catch (e) { throw sanitise(e); }
+    console.log(`row counts before: ${countsBefore}`);
+  });
 
   async function project(tx: Tx) {
     const [p] = await tx.insert(projects).values({ name: "SIT check" }).returning();
@@ -183,15 +200,74 @@ describe.skipIf(process.env.BLUEPRINT_SIT !== "1")("SIT Postgres rules (skipped 
     });
   });
 
-  test("9. nothing was left behind (AC-A4), and the schema is the seven tables", async () => {
+  test("9. a project without a model reads tier:medium (REQ-003 R1)", async () => {
+    await rolledBack(async (tx) => {
+      const p = await project(tx);
+      expect([p.model, p.creativity]).toEqual(["tier:medium", 0.5]);
+    });
+  });
+
+  test("10. REQ-003 tables: defaults, the creativity CHECK, unique sources, the messages FK, Thai content", async () => {
+    const origin = { stamp: "operator", date: "2026-10-09" };
+    await rolledBack(async (tx) => {
+      // (a) defaults on a new row
+      const p = await project(tx);
+      expect([p.model, p.creativity]).toEqual(["tier:medium", 0.5]);
+      // (b) creativity outside 0–2
+      const tooCreative = await attempt(tx, () => tx.update(projects).set({ creativity: 2.5 }).where(eq(projects.id, p.id)).execute());
+      expect(codeOf(tooCreative)).toBe("23514");
+      // (c) the same file twice in one project
+      const add = () => tx.insert(sources).values({ projectId: p.id, kind: "file", name: "a.pdf", sha256: "ab".repeat(32),
+        size: 10, storedAs: "ab/" + "ab".repeat(32), status: "read", origin }).execute();
+      await add();
+      expect(codeOf(await attempt(tx, add))).toBe("23505");
+      // (d) a message pointing at a change set that does not exist
+      const orphan = await attempt(tx, () => tx.insert(messages).values({ projectId: p.id, role: "bot", content: "x",
+        model: "tier:medium", creativity: 0.5, changeSetId: "3f2b8c1e-9a4d-4c2e-8b1f-6d7e5a4c3b2a" }).execute());
+      expect(codeOf(orphan)).toBe("23503");
+      // (e) Thai content round-trips byte-identical
+      const thai = "ห้องที่จุเกิน 10 คนต้องให้ผู้ดูแลอนุมัติ";
+      const [m] = await tx.insert(messages).values({ projectId: p.id, role: "user", content: thai, model: "tier:medium", creativity: 0.5 }).returning();
+      const [back] = await tx.select().from(messages).where(eq(messages.id, m!.id));
+      expect(Buffer.from(back!.content).equals(Buffer.from(thai))).toBe(true);
+    });
+  });
+
+  test("11. REQ-005 tables: one item per position, a frozen quiz cannot change, Thai questions", async () => {
+    await rolledBack(async (tx) => {
+      const p = await project(tx);
+      const [q] = await tx.insert(quizzes).values({ projectId: p.id, baseChangeSets: 0 }).returning();
+      const thai = "ห้องใหญ่ต้องให้ใครอนุมัติ และอนุมัติที่ขั้นตอนไหน";
+      // (a) a second item at the same position of one quiz
+      const add = () => tx.insert(quizItems).values({ quizId: q!.id, position: 1, question: thai, status: "answered",
+        answer: "ผู้ดูแลห้อง", model: "openai/gpt-4.1-mini" }).returning();
+      const [item] = await add();
+      expect(codeOf(await attempt(tx, add))).toBe("23505");
+      // (b) a version's frozen quiz cannot be updated (the immutable trigger)
+      const [cs] = await tx.insert(changeSets).values({ projectId: p.id, causeKind: "operator" }).returning();
+      await tx.insert(versions).values({ projectId: p.id, version: 1, confirmedBy: "operator", snapshot: {}, summary: {},
+        lastChangeSet: cs!.id, quiz: { id: q!.id, score: 100 } });
+      const upd = await attempt(tx, () => tx.update(versions).set({ quiz: { id: q!.id, score: 0 } }).where(eq(versions.projectId, p.id)).execute());
+      expect(codeOf(upd)).toBe("P0001");
+      expect(/immutable/.test(messageOf(upd))).toBe(true);
+      // (c) a Thai question round-trips byte-identical
+      const [back] = await tx.select().from(quizItems).where(eq(quizItems.id, item!.id));
+      expect(Buffer.from(back!.question).equals(Buffer.from(thai))).toBe(true);
+    });
+  });
+
+  test("12. nothing was left behind (AC-A4), and the schema is the expected tables", async () => {
     try {
+      const countsAfter = await rowCounts();
+      console.log(`row counts after: ${countsAfter}`);
+      expect(countsAfter).toBe(countsBefore);
       const [{ n }] = await db.select({ n: count() }).from(projects);
       expect(n).toBe(0);
       const tables = (await db.execute(sql`select table_name from information_schema.tables
         where table_schema = 'public' order by table_name`)) as unknown as { table_name: string }[];
       const names = [...tables].map((t) => t.table_name);
       console.log(`public tables: ${names.join(", ")}`);
-      expect(names).toEqual(["change_sets", "changes", "links", "organisations", "parts", "projects", "versions"]);
+      expect(names).toEqual(["change_sets", "changes", "links", "messages", "organisations", "parts", "projects", "quiz_items", "quizzes", "sources", "versions"]);
     } catch (e) {
       throw sanitise(e);
     }

@@ -4,11 +4,14 @@ import { versions } from "../../src/db/schema";
 import {
   confirmVersion, createProject, getProject, getVersion, listProjects,
 } from "../../src/projects/service";
-import { ConfirmBlocked, NotFound, NothingToConfirm, ValidationError } from "../../src/spec/errors";
-import { applyChangeSet } from "../../src/spec/store";
+import { AlreadyConfirmed, ConfirmBlocked, NotFound, NothingToConfirm, QuizNot100, ValidationError } from "../../src/spec/errors";
+import { applyChangeSet, loadSpec, undoChangeSet } from "../../src/spec/store";
+import { computeStuck } from "../../src/spec/stuck";
 import type { Change } from "../../src/spec/types";
 import { answerQ001, meetingRoom, meetingRoomCause } from "../fixtures/meeting-room";
 import { testDb } from "../helpers/db";
+import { passingQuiz } from "../helpers/quiz";
+import { startQuiz } from "../../src/quiz/store";
 
 async function caught(p: Promise<unknown>): Promise<unknown> {
   try { await p; } catch (e) { return e; }
@@ -60,10 +63,40 @@ test("an empty project has nothing to confirm", async () => {
   expect(await db.select().from(versions)).toHaveLength(0);
 });
 
+test("A-050 (D-030): confirming an unchanged spec again → AlreadyConfirmed { version }, nothing written; a change (edit or undo) re-opens it", async () => {
+  const db = await testDb();
+  const { project, apply } = await withExample(db);
+  await apply([answerQ001]);
+  await passingQuiz(db, project.id);
+  expect(await confirmVersion(db, project.id, "operator")).toEqual({ version: 1 });
+
+  const again = await caught(confirmVersion(db, project.id, "operator"));
+  expect(again).toBeInstanceOf(AlreadyConfirmed);
+  expect((again as AlreadyConfirmed).version).toBe(1);
+  expect(await db.select().from(versions)).toHaveLength(1);
+
+  // order: refused before any quiz code — a fresh, empty quiz would otherwise be quiz_not_100
+  await startQuiz(db, project.id);
+  expect(await caught(confirmVersion(db, project.id, "operator"))).toBeInstanceOf(AlreadyConfirmed);
+
+  // an edit, then a fresh 100 % quiz → v2
+  const edit = await apply([{ op: "part.update", key: "STEP-001", title: "ค้นหาห้องที่ว่าง" }]);
+  expect(await caught(confirmVersion(db, project.id, "operator"))).toBeInstanceOf(QuizNot100); // not refused as unchanged
+  await passingQuiz(db, project.id);
+  expect(await confirmVersion(db, project.id, "operator")).toEqual({ version: 2 });
+  expect((await caught(confirmVersion(db, project.id, "operator")) as AlreadyConfirmed).version).toBe(2);
+
+  // an undo is a change too: the spec reads like v1 again, but it is a new change set → v3 can confirm
+  await undoChangeSet(db, project.id, edit.changeSetId);
+  await passingQuiz(db, project.id);
+  expect(await confirmVersion(db, project.id, "operator")).toEqual({ version: 3 });
+});
+
 test("AC-11: a confirmed version is frozen; later edits make a new version", async () => {
   const db = await testDb();
   const { project, apply } = await withExample(db);
   await apply([answerQ001]);
+  await passingQuiz(db, project.id); // REQ-005 R6: confirm needs a passing quiz
   expect(await confirmVersion(db, project.id, "operator")).toEqual({ version: 1 });
 
   await apply([{ op: "part.update", key: "STEP-001", title: "ค้นหาห้องที่ว่าง" }]);
@@ -75,6 +108,7 @@ test("AC-11: a confirmed version is frozen; later edits make a new version", asy
   expect(v1.summary.partsByKind.step).toBe(6);
   expect(v1.summary.partsByKind.interaction).toBe(14);
 
+  await passingQuiz(db, project.id); // the edit above made the first quiz stale
   expect(await confirmVersion(db, project.id, "operator")).toEqual({ version: 2 });
   const v2 = await getVersion(db, project.id, 2);
   expect(v2.parts.find((p) => p.key === "STEP-001")!.title).toBe("ค้นหาห้องที่ว่าง");
@@ -87,6 +121,23 @@ test("R9: stuckCount is computed on every list", async () => {
   expect((await listProjects(db)).map((p) => [p.id, p.stuckCount])).toEqual([[project.id, 1]]);
   await apply([answerQ001]);
   expect((await listProjects(db)).map((p) => [p.id, p.stuckCount])).toEqual([[project.id, 0]]);
+});
+
+test("A-041 (D-025): partCount = live parts from the same spec read; stuckCount unchanged", async () => {
+  const db = await testDb();
+  const empty = await createProject(db, { name: "ว่าง" });
+  const { project, apply } = await withExample(db);
+  const row = async (id: string) => (await listProjects(db)).find((p) => p.id === id)!;
+  const truth = async (id: string) => { const spec = await loadSpec(db, id); return [spec.parts.length, computeStuck(spec).length]; };
+
+  expect([(await row(empty.id)).partCount, (await row(empty.id)).stuckCount]).toEqual([0, 0]);
+  const example = await row(project.id);
+  expect([example.partCount, example.stuckCount]).toEqual(await truth(project.id));
+  expect(example.partCount).toBe(34); // the worked example: 2 roles · 3 screens · 3 APIs · 1 system · 2 data · 1 work · 6 steps · 14 interactions · DEC-001 · Q-001
+  await apply([{ op: "part.remove", key: "DEC-001" }]);
+  const after = await row(project.id);
+  expect([after.partCount, after.stuckCount]).toEqual(await truth(project.id));
+  expect(after.partCount).toBe(33);
 });
 
 test("AC-B1 + AC-B2: a project keeps the theme id it was created with; none means clean-blue", async () => {
@@ -108,4 +159,14 @@ test("AC-B1 + AC-B2: a project keeps the theme id it was created with; none mean
     expect(await caught(createProject(db, { name: "e", theme }))).toBeInstanceOf(ValidationError);
   }
   expect(await listProjects(db)).toHaveLength(4);
+});
+
+test("REQ-003 R1: a new project carries model tier:medium and creativity 0.5", async () => {
+  const db = await testDb();
+  const created = await createProject(db, { name: "x" });
+  expect([created.model, created.creativity]).toEqual(["tier:medium", 0.5]);
+  const listed = (await listProjects(db)).find((p) => p.id === created.id)!;
+  expect([listed.model, listed.creativity]).toEqual(["tier:medium", 0.5]);
+  const read = (await getProject(db, created.id)).project;
+  expect([read.model, read.creativity]).toEqual(["tier:medium", 0.5]);
 });

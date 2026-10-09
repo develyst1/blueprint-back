@@ -7,7 +7,7 @@ import { compareKeys, KEY_RE, nextKey } from "./keys";
 import { checkLink, LINK_KINDS, PART_KINDS, type LinkKind, type PartKind } from "./registry";
 import { Cause, Change, Origin, type HistoryEntry, type Link, type Part } from "./types";
 
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type Q = Db | Tx;
 type PartRow = typeof parts.$inferSelect;
 type LinkRow = typeof links.$inferSelect;
@@ -92,10 +92,13 @@ export async function loadSpec(db: Db, projectId: string): Promise<{ parts: Part
   return { parts: ps, links: ls };
 }
 
+// `opts.inTx` runs after the last change is written and before commit, on the same transaction; if it throws, the
+// whole change set is rolled back (TASK-A-023: the chat's bot row is written this way, so a set never lands alone).
 export async function applyChangeSet(
   db: Db,
   projectId: string,
   input: { cause: Cause; changes: Change[] },
+  opts?: { inTx?: (tx: Tx, result: { changeSetId: string; keys: Record<string, string> }) => Promise<void> },
 ): Promise<{ changeSetId: string; keys: Record<string, string> }> {
   if (input.changes.length === 0) throw new ValidationError(null, "a change set needs at least one change");
   const cause = Cause.safeParse(input.cause);
@@ -205,7 +208,9 @@ export async function applyChangeSet(
         }
       }
     }
-    return { changeSetId: cs!.id, keys: Object.fromEntries(refs) };
+    const result = { changeSetId: cs!.id, keys: Object.fromEntries(refs) };
+    if (opts?.inTx) await opts.inTx(tx, result);
+    return result;
   });
 }
 
@@ -243,92 +248,131 @@ export async function partHistory(db: Db, projectId: string, key: string): Promi
 }
 
 export async function undoChangeSet(db: Db, projectId: string, changeSetId: string): Promise<{ changeSetId: string }> {
-  return db.transaction(async (tx) => {
-    await requireProject(tx, projectId, true);
-    const [original] = UUID_RE.test(changeSetId)
-      ? await tx.select().from(changeSets).where(and(eq(changeSets.id, changeSetId), eq(changeSets.projectId, projectId)))
-      : [];
-    if (!original) throw new NotFound("change set");
-    const rows = await tx.select().from(changes).where(eq(changes.changeSetId, changeSetId)).orderBy(asc(changes.seq));
+  return db.transaction((tx) => undoIn(tx, projectId, changeSetId));
+}
 
-    const current = async (entity: string): Promise<PartForm | LinkForm | null> => {
-      const [type, id] = [entity.slice(0, entity.indexOf(":")), entity.slice(entity.indexOf(":") + 1)];
-      if (type === "part") { const r = await partRow(tx, projectId, id); return r ? partForm(r) : null; }
-      const r = await linkRow(tx, projectId, id);
-      return r ? linkForm(r) : null;
-    };
-    const partKeyOf = (entity: string, before: any, after: any): string =>
-      entity.startsWith("part:") ? entity.slice(5) : (after ?? before).fromKey;
-    const conflict = async (keys: Iterable<string>) => {
-      const sorted = [...new Set(keys)].sort(compareKeys);
-      const named = [];
-      for (const key of sorted) {
-        const row = await partRow(tx, projectId, key);
-        if (!row) throw new Error(`integrity: project ${projectId} has history for part ${key} but no row`);
-        named.push({ key, title: row.title });
-      }
-      return new UndoConflict(named);
-    };
+class DryRun extends Error {}
 
-    // Refuse if anything in the set was changed again since (AC-8): newer work is never overwritten.
-    const changedSince: string[] = [];
-    for (const r of rows) {
-      if (!same(await current(r.entity), r.after)) changedSince.push(partKeyOf(r.entity, r.before, r.after));
+// TASK-A-030: `undoable` = exactly what `undoChangeSet` would decide right now. The undo refuses in three places (changed
+// since, a link end removed since, a part linked since — two of them only while writing), so the read runs the same
+// `undoIn` in a transaction that is always rolled back, and keeps only "refused or not". Nothing it writes survives.
+async function wouldUndo(db: Db, projectId: string, changeSetId: string): Promise<boolean> {
+  try {
+    await db.transaction(async (tx) => { await undoIn(tx, projectId, changeSetId); throw new DryRun(); });
+  } catch (e) {
+    if (e instanceof DryRun) return true;
+    if (e instanceof UndoConflict) return false;
+    throw e;
+  }
+  throw new Error("unreachable: a dry-run undo always rolls back");
+}
+
+export type ChangeSetRead = {
+  id: string; at: string; cause: { kind: string; ref: string | null };
+  counts: { added: number; updated: number; removed: number }; entities: string[]; undoable: boolean;
+};
+
+// SPEC-A-006 § C1: one change set for the chat's change card — counts from its `changes` rows (link rows count too).
+export async function readChangeSet(db: Db, projectId: string, changeSetId: string): Promise<ChangeSetRead> {
+  await requireProject(db, projectId);
+  const [cs] = UUID_RE.test(changeSetId)
+    ? await db.select().from(changeSets).where(and(eq(changeSets.id, changeSetId), eq(changeSets.projectId, projectId)))
+    : [];
+  if (!cs) throw new NotFound("change set");
+  const rows = await db.select().from(changes).where(eq(changes.changeSetId, changeSetId)).orderBy(asc(changes.seq));
+  const counts = { added: 0, updated: 0, removed: 0 };
+  for (const r of rows) counts[r.before === null ? "added" : r.after === null ? "removed" : "updated"]++;
+  return {
+    id: cs.id, at: cs.at.toISOString(), cause: { kind: cs.causeKind, ref: cs.causeRef },
+    counts, entities: [...new Set(rows.map((r) => r.entity))], undoable: await wouldUndo(db, projectId, changeSetId),
+  };
+}
+
+async function undoIn(tx: Tx, projectId: string, changeSetId: string): Promise<{ changeSetId: string }> {
+  await requireProject(tx, projectId, true);
+  const [original] = UUID_RE.test(changeSetId)
+    ? await tx.select().from(changeSets).where(and(eq(changeSets.id, changeSetId), eq(changeSets.projectId, projectId)))
+    : [];
+  if (!original) throw new NotFound("change set");
+  const rows = await tx.select().from(changes).where(eq(changes.changeSetId, changeSetId)).orderBy(asc(changes.seq));
+
+  const current = async (entity: string): Promise<PartForm | LinkForm | null> => {
+    const [type, id] = [entity.slice(0, entity.indexOf(":")), entity.slice(entity.indexOf(":") + 1)];
+    if (type === "part") { const r = await partRow(tx, projectId, id); return r ? partForm(r) : null; }
+    const r = await linkRow(tx, projectId, id);
+    return r ? linkForm(r) : null;
+  };
+  const partKeyOf = (entity: string, before: any, after: any): string =>
+    entity.startsWith("part:") ? entity.slice(5) : (after ?? before).fromKey;
+  const conflict = async (keys: Iterable<string>) => {
+    const sorted = [...new Set(keys)].sort(compareKeys);
+    const named = [];
+    for (const key of sorted) {
+      const row = await partRow(tx, projectId, key);
+      if (!row) throw new Error(`integrity: project ${projectId} has history for part ${key} but no row`);
+      named.push({ key, title: row.title });
     }
-    if (changedSince.length) throw await conflict(changedSince);
+    return new UndoConflict(named);
+  };
 
-    const [cs] = await tx.insert(changeSets)
-      .values({ projectId, causeKind: "undo", undoes: changeSetId }).returning();
-    let seq = 0;
-    const record = (entity: string, before: unknown, after: unknown) =>
-      tx.insert(changes).values({ changeSetId: cs!.id, seq: ++seq, entity, before, after });
-    const nowRemoved: string[] = [];
-    const blocked: string[] = [];
+  // Refuse if anything in the set was changed again since (AC-8): newer work is never overwritten.
+  const changedSince: string[] = [];
+  for (const r of rows) {
+    if (!same(await current(r.entity), r.after)) changedSince.push(partKeyOf(r.entity, r.before, r.after));
+  }
+  if (changedSince.length) throw await conflict(changedSince);
 
-    // Reverse order: a part is restored before its links come back (the database refuses the other way).
-    for (const r of [...rows].reverse()) {
-      const now = await current(r.entity);
-      if (r.entity.startsWith("part:")) {
-        const key = r.entity.slice(5);
-        const target = r.before as PartForm | null;
-        // A part row is never deleted, so its key is never reused: undoing an add removes it.
-        const set = target === null
-          ? { removedAt: new Date() }
-          : { title: target.title, body: target.body, origin: target.origin, removedAt: target.removed ? new Date() : null };
-        const [row] = await tx.update(parts).set(set)
-          .where(and(eq(parts.projectId, projectId), eq(parts.key, key))).returning();
-        if (row!.removedAt) nowRemoved.push(key);
-        await record(r.entity, now, partForm(row!));
-      } else {
-        const target = r.before as LinkForm | null;
-        if (target === null) {
-          await tx.delete(links).where(eq(links.id, (now as LinkForm).id));
-          await record(r.entity, now, null);
-        } else if (now === null) {
-          // An end removed by a later set is newer work: refuse rather than let the database throw.
-          const deadEnds = [];
-          for (const key of [target.fromKey, target.toKey]) {
-            if ((await partRow(tx, projectId, key))?.removedAt) deadEnds.push(key);
-          }
-          if (deadEnds.length) { blocked.push(...deadEnds); continue; }
-          const [row] = await tx.insert(links).values({ ...target, projectId }).returning();
-          await record(r.entity, null, linkForm(row!));
-        } else {
-          const [row] = await tx.update(links).set({ position: target.position, label: target.label })
-            .where(eq(links.id, target.id)).returning();
-          await record(r.entity, now, linkForm(row!));
+  const [cs] = await tx.insert(changeSets)
+    .values({ projectId, causeKind: "undo", undoes: changeSetId }).returning();
+  let seq = 0;
+  const record = (entity: string, before: unknown, after: unknown) =>
+    tx.insert(changes).values({ changeSetId: cs!.id, seq: ++seq, entity, before, after });
+  const nowRemoved: string[] = [];
+  const blocked: string[] = [];
+
+  // Reverse order: a part is restored before its links come back (the database refuses the other way).
+  for (const r of [...rows].reverse()) {
+    const now = await current(r.entity);
+    if (r.entity.startsWith("part:")) {
+      const key = r.entity.slice(5);
+      const target = r.before as PartForm | null;
+      // A part row is never deleted, so its key is never reused: undoing an add removes it.
+      const set = target === null
+        ? { removedAt: new Date() }
+        : { title: target.title, body: target.body, origin: target.origin, removedAt: target.removed ? new Date() : null };
+      const [row] = await tx.update(parts).set(set)
+        .where(and(eq(parts.projectId, projectId), eq(parts.key, key))).returning();
+      if (row!.removedAt) nowRemoved.push(key);
+      await record(r.entity, now, partForm(row!));
+    } else {
+      const target = r.before as LinkForm | null;
+      if (target === null) {
+        await tx.delete(links).where(eq(links.id, (now as LinkForm).id));
+        await record(r.entity, now, null);
+      } else if (now === null) {
+        // An end removed by a later set is newer work: refuse rather than let the database throw.
+        const deadEnds = [];
+        for (const key of [target.fromKey, target.toKey]) {
+          if ((await partRow(tx, projectId, key))?.removedAt) deadEnds.push(key);
         }
+        if (deadEnds.length) { blocked.push(...deadEnds); continue; }
+        const [row] = await tx.insert(links).values({ ...target, projectId }).returning();
+        await record(r.entity, null, linkForm(row!));
+      } else {
+        const [row] = await tx.update(links).set({ position: target.position, label: target.label })
+          .where(eq(links.id, target.id)).returning();
+        await record(r.entity, now, linkForm(row!));
       }
     }
+  }
 
-    // A part this undo removes may have gained links in a later set — that is newer work too.
-    for (const key of nowRemoved) {
-      const touching = await tx.select({ id: links.id }).from(links)
-        .where(and(eq(links.projectId, projectId), or(eq(links.fromKey, key), eq(links.toKey, key))));
-      if (touching.length) blocked.push(key);
-    }
-    if (blocked.length) throw await conflict(blocked);
+  // A part this undo removes may have gained links in a later set — that is newer work too.
+  for (const key of nowRemoved) {
+    const touching = await tx.select({ id: links.id }).from(links)
+      .where(and(eq(links.projectId, projectId), or(eq(links.fromKey, key), eq(links.toKey, key))));
+    if (touching.length) blocked.push(key);
+  }
+  if (blocked.length) throw await conflict(blocked);
 
-    return { changeSetId: cs!.id };
-  });
+  return { changeSetId: cs!.id };
 }

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uuid,
+  boolean, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp, unique, uuid,
 } from "drizzle-orm/pg-core";
 
 export const DEFAULT_ORGANISATION_ID = "00000000-0000-0000-0000-000000000001";
@@ -19,7 +19,12 @@ export const projects = pgTable("projects", {
   name: text("name").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   theme: text("theme").notNull().default("clean-blue"),
-}, (t) => [check("projects_theme_length", sql`char_length(${t.theme}) between 1 and 64`)]);
+  model: text("model").notNull().default("tier:medium"),
+  creativity: real("creativity").notNull().default(0.5),
+}, (t) => [
+  check("projects_theme_length", sql`char_length(${t.theme}) between 1 and 64`),
+  check("projects_creativity_range", sql`${t.creativity} between 0 and 2`),
+]);
 
 export const parts = pgTable("parts", {
   projectId: uuid("project_id").references(() => projects.id),
@@ -75,4 +80,61 @@ export const versions = pgTable("versions", {
   snapshot: jsonb("snapshot").notNull(),
   summary: jsonb("summary").notNull(),
   lastChangeSet: uuid("last_change_set").notNull().references(() => changeSets.id),
+  // REQ-005: the quiz that passed the confirm gate, frozen with the version (null for versions confirmed before it).
+  quiz: jsonb("quiz"),
 }, (t) => [primaryKey({ columns: [t.projectId, t.version] })]);
+
+// REQ-003: originals the chatbot reads. `stored_as` is relative to SOURCES_DIR; `origin` says who it is from.
+export const sources = pgTable("sources", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: uuid("project_id").notNull().references(() => projects.id),
+  kind: text("kind").notNull(),
+  name: text("name").notNull(),
+  mime: text("mime"),
+  sha256: text("sha256").notNull(),
+  size: integer("size").notNull(),
+  storedAs: text("stored_as").notNull(),
+  text: text("text"),
+  status: text("status").notNull(),
+  reason: text("reason"),
+  note: text("note"),
+  origin: jsonb("origin").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [unique("sources_project_sha256_unique").on(t.projectId, t.sha256)]);
+
+// REQ-003: the chat, one row per user message and per bot reply.
+export const messages = pgTable("messages", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: uuid("project_id").notNull().references(() => projects.id),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  model: text("model").notNull(),
+  creativity: real("creativity").notNull(),
+  roundStatus: text("round_status"),
+  changeSetId: uuid("change_set_id").references(() => changeSets.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// REQ-005: the understanding quiz. `base_change_sets` = the project's change sets (none of them this quiz's) at start.
+export const quizzes = pgTable("quizzes", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: uuid("project_id").notNull().references(() => projects.id),
+  baseChangeSets: integer("base_change_sets").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const quizItems = pgTable("quiz_items", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  quizId: uuid("quiz_id").notNull().references(() => quizzes.id),
+  position: integer("position").notNull(),
+  question: text("question").notNull(),
+  status: text("status").notNull(),
+  answer: text("answer"),
+  notInSpec: boolean("not_in_spec").notNull().default(false),
+  parts: text("parts").array().notNull().default(sql`'{}'`),
+  mark: text("mark"),
+  note: text("note"),
+  changeSetId: uuid("change_set_id").references(() => changeSets.id),
+  model: text("model").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [unique("quiz_items_quiz_position_unique").on(t.quizId, t.position)]);

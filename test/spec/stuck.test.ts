@@ -127,3 +127,18 @@ test("an interaction missing an end makes its step stuck, and is still drawn", a
   expect(d.messages).toHaveLength(4);
   expect(d.messages[2]).toMatchObject({ key: "INT-008", from: "API-002", to: null });
 });
+
+test("REQ-003 R1: an open contradiction is stuck once, naming what it is between; resolved → gone", async () => {
+  const { apply, stuck } = await example();
+  await apply([
+    { op: "part.add", ref: "$c", kind: "contradiction", title: "ต้องอนุมัติหรือไม่", body: { note: "เอกสารขัดกับ DEC-001" }, origin: guess },
+    { op: "link.add", kind: "conflicts", from: "$c", to: "STEP-003", origin: guess },
+    { op: "link.add", kind: "conflicts", from: "$c", to: "DEC-001", origin: guess },
+  ]);
+  expect((await stuck()).map(({ kind, key, between }) => ({ kind, key, between }))).toEqual([
+    { kind: "open_question", key: "Q-001", between: undefined },
+    { kind: "contradiction", key: "CON-001", between: ["DEC-001", "STEP-003"] },
+  ]);
+  await apply([{ op: "part.update", key: "CON-001", body: { note: "เอกสารขัดกับ DEC-001", status: "resolved" } }]);
+  expect((await stuck()).map((i) => i.key)).toEqual(["Q-001"]);
+});

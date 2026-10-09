@@ -19,3 +19,8 @@ test("kindOfKey names the kind and refuses a malformed key", () => {
   expect(() => kindOfKey("SCR-4")).toThrow();
   expect(() => kindOfKey("UC-001")).toThrow();
 });
+
+test("REQ-003 R1: CON keys belong to contradiction", () => {
+  expect(kindOfKey("CON-001")).toBe("contradiction");
+  expect(nextKey("contradiction", [])).toBe("CON-001");
+});

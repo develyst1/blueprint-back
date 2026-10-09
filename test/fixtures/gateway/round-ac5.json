@@ -1,0 +1,7 @@
+{"reply":"รับทราบครับ เพิ่มขั้นตอนแจ้งเตือนและบันทึกคำตอบที่คุณยอมรับแล้ว",
+ "changes":[
+  {"change":{"op":"part.add","ref":"$s7","kind":"step","title":"แจ้งเตือนผู้ดูแลเมื่อมีคำขอ","body":{}},"saidBy":"user","quote":"เพิ่มขั้นตอนแจ้งเตือนผู้ดูแล","sure":true},
+  {"change":{"op":"link.add","kind":"has_step","from":"WRK-001","to":"$s7"},"saidBy":"user","quote":"เพิ่มขั้นตอนแจ้งเตือนผู้ดูแล","sure":true},
+  {"change":{"op":"part.update","key":"STEP-002","title":"เลือกห้องและช่วงเวลา"},"saidBy":"user","quote":"แก้ชื่อขั้นที่ 2","sure":true}
+ ],
+ "questions":[],"contradictions":[]}

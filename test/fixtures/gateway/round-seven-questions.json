@@ -1,0 +1,12 @@
+{"reply":"มีคำถามเพิ่มครับ",
+ "changes":[],
+ "questions":[
+  {"text":"ข้อมูลห้องเก็บอะไรบ้าง","proposedAnswer":"ชื่อ ความจุ ชั้น","cases":[],"about":"DATA-001"},
+  {"text":"ระบบปฏิทินใช้ของใคร","proposedAnswer":"ปฏิทินบริษัท","cases":[],"about":"SYS-001"},
+  {"text":"ไม่มีคำถามผูกกับอะไร","proposedAnswer":"ไม่มี","cases":[]},
+  {"text":"หน้าค้นหามีตัวกรองอะไร","proposedAnswer":"วันที่และจำนวนคน","cases":[],"about":"SCR-001"},
+  {"text":"API ค้นหาแบ่งหน้าหรือไม่","proposedAnswer":"ไม่แบ่ง","cases":[],"about":"API-001"},
+  {"text":"ขั้นตอนเลือกห้องทำบนมือถือได้ไหม","proposedAnswer":"ได้","cases":[],"about":"STEP-002"},
+  {"text":"งานจองห้องรวมการยกเลิกด้วยไหม","proposedAnswer":"รวม","cases":["ยกเลิกก่อนเวลา"],"about":"WRK-001"}
+ ],
+ "contradictions":[]}

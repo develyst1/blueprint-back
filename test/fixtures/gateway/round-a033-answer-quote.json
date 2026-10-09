@@ -1,0 +1,18 @@
+{
+  "reply": "รับทราบครับ ปรับขั้นตอนผู้ดูแลพิจารณาให้มีกำหนดหนึ่งวัน และเพิ่มขั้นแจ้งเตือนผู้ดูแล",
+  "changes": [
+    {
+      "change": { "op": "part.update", "key": "STEP-004", "title": "ผู้ดูแลพิจารณาภายในหนึ่งวัน" },
+      "saidBy": "user",
+      "quote": "ต้องตอบภายในหนึ่งวัน",
+      "sure": true
+    },
+    {
+      "change": { "op": "part.add", "ref": "$n", "kind": "step", "title": "แจ้งเตือนผู้ดูแล", "body": { "ends": false } },
+      "saidBy": "user",
+      "sure": true
+    }
+  ],
+  "questions": [],
+  "contradictions": []
+}

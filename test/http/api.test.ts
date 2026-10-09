@@ -4,11 +4,13 @@ import { flowchart, sequence, swimlane } from "../../src/spec/diagrams";
 import type { Change } from "../../src/spec/types";
 import { answerQ001, meetingRoom } from "../fixtures/meeting-room";
 import { testDb } from "../helpers/db";
+import { passingQuiz } from "../helpers/quiz";
 
 const origin = { stamp: "operator", date: "2026-10-08" };
 
 async function api() {
-  const app = createApp(await testDb());
+  const db = await testDb();
+  const app = createApp(db);
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await app.request(path, {
       method,
@@ -19,7 +21,7 @@ async function api() {
   const project = async (name = "จองห้องประชุม") => (await call("POST", "/v1/projects", { name })).body.id as string;
   const changeSet = (id: string, changes: Change[], cause: unknown = { kind: "operator" }) =>
     call("POST", `/v1/projects/${id}/change-sets`, { cause, changes });
-  return { call, project, changeSet };
+  return { call, project, changeSet, db };
 }
 
 test("AC-2 + AC-12: create a project, add a Thai step, read it back byte-identical", async () => {
@@ -38,7 +40,7 @@ test("AC-2 + AC-12: create a project, add a Thai step, read it back byte-identic
   expect(got.body.project.name).toBe("จองห้องประชุม");
   expect(Buffer.from(got.body.parts[0].title).equals(Buffer.from("ส่งคำขอจอง"))).toBe(true);
   expect(got.body.parts[0].origin).toEqual(origin);
-  expect((await call("GET", "/v1/projects")).body.map((p: any) => [p.id, p.stuckCount])).toEqual([[id, 1]]);
+  expect((await call("GET", "/v1/projects")).body.map((p: any) => [p.id, p.stuckCount, p.partCount])).toEqual([[id, 1, 1]]);
 });
 
 test("AC-3: the three diagrams over HTTP; wrong kind of key 400, unknown key 404", async () => {
@@ -158,7 +160,7 @@ test("AC-9: a bad 2nd change is 400 with details.index 1 and writes nothing; an 
 });
 
 test("AC-10/11: confirm blocked while stuck; version 1 is frozen after a later edit", async () => {
-  const { call, project, changeSet } = await api();
+  const { call, project, changeSet, db } = await api();
   const id = await project();
   await changeSet(id, meetingRoom);
   const blocked = await call("POST", `/v1/projects/${id}/versions`, { confirmedBy: "operator" });
@@ -168,8 +170,12 @@ test("AC-10/11: confirm blocked while stuck; version 1 is frozen after a later e
 
   await changeSet(id, [answerQ001]);
   expect((await call("POST", `/v1/projects/${id}/versions`, { confirmedBy: "   " })).status).toBe(400);
+  await passingQuiz(db, id); // REQ-005 R6: confirm needs a passing quiz
   const ok = await call("POST", `/v1/projects/${id}/versions`, { confirmedBy: "operator" });
   expect(ok).toEqual({ status: 201, body: { version: 1 } });
+  // A-050 (D-030): the same spec again → 409 already_confirmed { version: 1 }
+  const twice = await call("POST", `/v1/projects/${id}/versions`, { confirmedBy: "operator" });
+  expect([twice.status, twice.body.error.code, twice.body.error.details]).toEqual([409, "already_confirmed", { version: 1 }]);
   await changeSet(id, [{ op: "part.update", key: "STEP-001", title: "ค้นหาห้องที่ว่าง" }]);
   const v1 = await call("GET", `/v1/projects/${id}/versions/1`);
   expect(v1.status).toBe(200);
@@ -190,11 +196,22 @@ test("AC-13: the OpenAPI document lists every route of the SPEC", async () => {
     ["get", "/v1/projects/{projectId}"],
     ["post", "/v1/projects/{projectId}/change-sets"],
     ["post", "/v1/projects/{projectId}/change-sets/{changeSetId}/undo"],
+    ["get", "/v1/projects/{projectId}/change-sets/{changeSetId}"],
     ["get", "/v1/projects/{projectId}/parts/{key}/history"],
     ["get", "/v1/projects/{projectId}/stuck"],
     ["get", "/v1/projects/{projectId}/diagrams/{kind}/{key}"],
     ["post", "/v1/projects/{projectId}/versions"],
     ["get", "/v1/projects/{projectId}/versions/{version}"],
+    ["post", "/v1/projects/{projectId}/rounds"],
+    ["get", "/v1/projects/{projectId}/messages"],
+    ["post", "/v1/projects/{projectId}/quizzes"],
+    ["get", "/v1/projects/{projectId}/quizzes/latest"],
+    ["post", "/v1/projects/{projectId}/quizzes/{quizId}/questions"],
+    ["post", "/v1/projects/{projectId}/quizzes/{quizId}/items/{itemId}/mark"],
+    ["get", "/v1/projects/{projectId}/versions/{version}/parts/{key}/context"],
+    ["post", "/v1/projects/{projectId}/locate"],
+    ["get", "/v1/projects/{projectId}/versions"],
+    ["post", "/v1/projects/{projectId}/amendments"],
     ["get", "/v1/openapi.json"],
   ];
   for (const [method, path] of routes) expect(doc.body.paths[path]?.[method]).toBeDefined();
@@ -256,4 +273,33 @@ test("AC-B1…B3: theme over HTTP — kept, defaulted, and refused when empty or
     expect(bad.body.error.code).toBe("validation");
   }
   expect((await call("GET", "/v1/projects")).body).toHaveLength(list.length);
+});
+
+test("REQ-003 R1: model and creativity over HTTP — create answer, list, single read", async () => {
+  const { call } = await api();
+  const created = await call("POST", "/v1/projects", { name: "x" });
+  expect(created.status).toBe(201);
+  expect([created.body.model, created.body.creativity]).toEqual(["tier:medium", 0.5]);
+  const listed = (await call("GET", "/v1/projects")).body.find((p: any) => p.id === created.body.id);
+  expect([listed.model, listed.creativity]).toEqual(["tier:medium", 0.5]);
+  const read = (await call("GET", `/v1/projects/${created.body.id}`)).body.project;
+  expect([read.model, read.creativity]).toEqual(["tier:medium", 0.5]);
+});
+
+test("A-030: GET a change set — counts and undoable for the change card; 404 for another project's set", async () => {
+  const { call, project, changeSet } = await api();
+  const id = await project();
+  const other = await project("อื่น");
+  const step = (ref: string, title: string): Change =>
+    ({ op: "part.add", ref, kind: "step", title, body: {}, origin: { stamp: "operator", date: "2026-10-09" } });
+  const set = await changeSet(id, [step("$a", "ก"), step("$b", "ข")]);
+  const read = await call("GET", `/v1/projects/${id}/change-sets/${set.body.changeSetId}`);
+  expect(read.status).toBe(200);
+  expect(read.body).toEqual({ id: set.body.changeSetId, at: expect.any(String), cause: { kind: "operator", ref: null },
+    counts: { added: 2, updated: 0, removed: 0 }, entities: ["part:STEP-001", "part:STEP-002"], undoable: true });
+  await changeSet(id, [{ op: "part.update", key: "STEP-001", title: "ค" }]);
+  expect((await call("GET", `/v1/projects/${id}/change-sets/${set.body.changeSetId}`)).body.undoable).toBe(false);
+  expect((await call("GET", `/v1/projects/${other}/change-sets/${set.body.changeSetId}`)).status).toBe(404);
+  expect((await call("GET", `/v1/projects/${id}/change-sets/00000000-0000-4000-8000-000000000099`)).status).toBe(404);
+  expect((await call("GET", `/v1/projects/00000000-0000-4000-8000-000000000099/change-sets/${set.body.changeSetId}`)).status).toBe(404);
 });
