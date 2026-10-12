@@ -116,7 +116,9 @@ test("R4: changing an operator-stamped part needs a verified user quote", async 
 
 test("R5: at most 5 contradictions are stored; a gateway body over 1 000 000 bytes is too_large → bot_could_not_answer", async () => {
   const { db, pid } = await project();
-  const seven = Array.from({ length: 7 }, (_, i) => ({ note: `ขัดกันข้อ ${i + 1}`, between: ["DEC-001", "STEP-003"] }));
+  // seven different side sets — equal sides are stored once (TASK-A-065), so the cap is only reached with distinct ones
+  const seven = Array.from({ length: 7 }, (_, i) => ({ note: `ขัดกันข้อ ${i + 1}`,
+    between: i === 6 ? ["STEP-001", "STEP-002", "STEP-003"] : ["DEC-001", `STEP-00${i + 1}`] }));
   const g = fake([said(answer([], { contradictions: seven }))]);
   const r = await runRound(db, g.gateway, pid, { message: "เทียบให้หน่อย" }, { today: TODAY });
   expect(r.contradictions).toHaveLength(5);

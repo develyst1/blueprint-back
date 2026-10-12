@@ -64,7 +64,7 @@ type SourceRow = { id: string; name: string; status: string; reason: string | nu
 type Built = { ok: true; changes: Change[]; labels: string[]; questionRefs: string[]; contradictionRefs: string[] } | { ok: false; error: string };
 type Applied =
   | { status: "applied"; changeSetId: string; questions: string[]; contradictions: string[]; botRowId: string }
-  | { status: "no_changes" }
+  | { status: "no_changes"; contradictions: string[] }
   | { status: "invalid"; error: string };
 
 // Messages are ordered by `created_at`, and the clock can give two rows the same millisecond (seen: 171 of 200
@@ -193,6 +193,14 @@ function build(answer: ModelReply, ctx: {
     }
   }
 
+  // A contradiction whose sides equal an OPEN one's (this spec's, or one added earlier in this answer) is not stored
+  // again; the reply names that part instead (REQ-003 R6, TASK-A-065). Side sets compare order-insensitively.
+  const sidesKey = (sides: string[]) => [...new Set(sides)].sort().join("\n");
+  const holding = new Map<string, string>();
+  for (const p of ctx.parts) {
+    if (p.kind !== "contradiction" || p.body.status !== "open") continue;
+    holding.set(sidesKey(ctx.links.filter((l) => l.kind === "conflicts" && l.fromKey === p.key).map((l) => l.toKey)), p.key);
+  }
   const contradictionRefs: string[] = [];
   // Rule 6: at most 5 contradictions per round, each between at most 10 keys (the rest is not stored).
   for (const [k, c] of answer.contradictions.slice(0, MAX_CONTRADICTIONS).map((c) => ({ ...c, between: c.between.slice(0, MAX_BETWEEN) })).entries()) {
@@ -202,7 +210,10 @@ function build(answer: ModelReply, ctx: {
     if (c.sourceId !== undefined && !ctx.sources.some((s) => s.id === c.sourceId)) {
       return { ok: false, error: `contradictions[${k}]: sourceId "${c.sourceId}" is not a source of this project` };
     }
+    const same = holding.get(sidesKey(c.between));
+    if (same !== undefined) { contradictionRefs.push(same); continue; }
     const ref = `$srvc${k + 1}`;
+    holding.set(sidesKey(c.between), ref);
     contradictionRefs.push(ref);
     out.push({ op: "part.add", ref, kind: "contradiction", title: c.note, origin: guess, body: {
       note: c.note, ...(c.sourceId ? { sourceId: c.sourceId } : {}), ...(c.quote ? { quote: c.quote } : {}),
@@ -354,7 +365,7 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
     const built = build(answer, { parts: spec.parts, links: spec.links, sources: srcRows, today: opts.today, message,
       accepted, answered: ownAnswers, parked });
     if (!built.ok) return { status: "invalid", error: built.error };
-    if (built.changes.length === 0) return { status: "no_changes" };
+    if (built.changes.length === 0) return { status: "no_changes", contradictions: built.contradictionRefs };
     try {
       let botRowId = "";
       // The bot row goes in the change set's own transaction: a set never lands without its reply (rule 8).
@@ -373,7 +384,7 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
         if (!key) throw new Error(`integrity: change set ${changeSetId} returned no key for ${r}`);
         return key;
       };
-      return { status: "applied", changeSetId, botRowId, questions: built.questionRefs.map(keyOf), contradictions: built.contradictionRefs.map(keyOf) };
+      return { status: "applied", changeSetId, botRowId, questions: built.questionRefs.map(keyOf), contradictions: built.contradictionRefs.map((r) => (r.startsWith("$") ? keyOf(r) : r)) };
     } catch (e) {
       if (!(e instanceof ValidationError)) throw e;
       const label = e.index === null ? "the answer" : built.labels[e.index] ?? `change ${e.index}`;
@@ -428,9 +439,10 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
     result = await applyAnswer(fixed.reply, modelOf(correction));
     if (result.status === "invalid") return fail("changes_rejected", reply, modelOf(correction), "validation");
   }
-  return result.status === "applied"
-    ? finish("applied", reply, modelOf(answered), result)
-    : finish("no_changes", reply, modelOf(answered));
+  if (result.status === "applied") return finish("applied", reply, modelOf(answered), result);
+  // nothing new was stored, but a repeated contradiction still names the part that holds it (TASK-A-065)
+  const none = await finish("no_changes", reply, modelOf(answered));
+  return result.status === "no_changes" ? { ...none, contradictions: result.contradictions } : none;
   } catch (e) {
     // An unexpected fault (not a normal round outcome): the round never happened, so its user row goes — unless a
     // change set already points at it as its cause (then it stays, for history; SA question Q2).

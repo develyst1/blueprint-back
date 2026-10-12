@@ -27,15 +27,15 @@ function fake(chatReplies: Reply[]) {
 const ok: Reply = () => new Response(recorded("chat-ok.json"));
 const http500: Reply = () => new Response(recorded("chat-500.json"), { status: 500 });
 
-test("chat OK; the request carries tier or provider+model, temperature = creativity, max_tokens 4000", async () => {
+test("chat OK; the request carries tier or provider+model, temperature = creativity, max_tokens 16 384", async () => {
   const g = fake([ok, ok]);
   const gw = createGateway({ baseUrl: BASE, fetch: g.fetch });
   const a = await gw.chat({ model: "tier:medium", creativity: 0.3, messages });
   expect(a).toEqual({ ok: true, content: "สวัสดีครับ ห้องใหญ่ต้องให้ผู้ดูแลอนุมัติ", provider: "openai", model: "gpt-4.1-mini",
     usage: { prompt_tokens: 42, completion_tokens: 12, total_tokens: 54 } });
   await gw.chat({ model: "openai/gpt-4.1-mini", creativity: 1.2, messages });
-  expect(g.bodies[0]).toEqual({ tier: "medium", temperature: 0.3, max_tokens: 4000, messages });
-  expect(g.bodies[1]).toEqual({ provider: "openai", model: "gpt-4.1-mini", temperature: 1.2, max_tokens: 4000, messages });
+  expect(g.bodies[0]).toEqual({ tier: "medium", temperature: 0.3, max_tokens: 16_384, messages });
+  expect(g.bodies[1]).toEqual({ provider: "openai", model: "gpt-4.1-mini", temperature: 1.2, max_tokens: 16_384, messages });
 });
 
 test("AC-10 (client): every kind of failure is retried once, then reported with its reason", async () => {

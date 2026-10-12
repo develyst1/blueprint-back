@@ -318,3 +318,37 @@ test("A-029: a caw amendment in the history reaches the next round as a user tur
   const turns = f.requests[0]!.messages.filter((m) => m.role === "user");
   expect(turns.map((m) => m.content)).toContain("[CAW card-17] about: STEP-004\nขอเพิ่มการแจ้งเตือนทางอีเมล");
 });
+
+// TASK-A-065 (REQ-003 R6, Interpreted): a contradiction whose sides equal an OPEN one's is not stored again.
+const conflict = (between: string[], note = "ข้อตัดสินใจขัดกับขั้นตอน") => said({ ...empty, contradictions: [{ note, between }] });
+const openContradictions = async (db: Db, pid: string) => computeStuck(await loadSpec(db, pid)).filter((i) => i.kind === "contradiction");
+
+test("A-065: the same sides (other order) in a later round → one part; the reply names the existing one", async () => {
+  const { db, pid } = await project();
+  const first = await runRound(db, fakeGateway([conflict(["DEC-001", "STEP-004"])]).gateway, pid, { message: "เทียบให้หน่อย" }, { today: TODAY });
+  expect(first.contradictions).toEqual(["CON-001"]);
+  const again = await runRound(db, fakeGateway([conflict(["STEP-004", "DEC-001"], "ขัดกันอีกแล้ว")]).gateway, pid, { message: "เทียบอีกที" }, { today: TODAY });
+  expect(again.contradictions).toEqual(["CON-001"]);
+  const spec = await loadSpec(db, pid);
+  expect(spec.parts.filter((p) => p.kind === "contradiction").map((p) => p.key)).toEqual(["CON-001"]);
+  expect(spec.links.filter((l) => l.kind === "conflicts")).toHaveLength(2);
+  expect(await openContradictions(db, pid)).toHaveLength(1);
+});
+
+test("A-065: one side more → a new part · the old one resolved → a new part · two equal in one answer → one part", async () => {
+  const { db, pid } = await project();
+  await runRound(db, fakeGateway([conflict(["DEC-001", "STEP-004"])]).gateway, pid, { message: "หนึ่ง" }, { today: TODAY });
+  const three = await runRound(db, fakeGateway([conflict(["DEC-001", "STEP-004", "STEP-001"])]).gateway, pid, { message: "สอง" }, { today: TODAY });
+  expect(three.contradictions).toEqual(["CON-002"]);
+
+  const spec = await loadSpec(db, pid);
+  const con1 = spec.parts.find((p) => p.key === "CON-001")!;
+  await applyChangeSet(db, pid, { cause: { kind: "operator" }, changes: [{ op: "part.update", key: "CON-001", body: { ...con1.body, status: "resolved" } }] });
+  const reopened = await runRound(db, fakeGateway([conflict(["DEC-001", "STEP-004"])]).gateway, pid, { message: "สาม" }, { today: TODAY });
+  expect(reopened.contradictions).toEqual(["CON-003"]);
+
+  const twice = await runRound(db, fakeGateway([said({ ...empty, contradictions: [
+    { note: "ก", between: ["DEC-001", "STEP-002"] }, { note: "ข", between: ["STEP-002", "DEC-001"] }] })]).gateway, pid, { message: "สี่" }, { today: TODAY });
+  expect(twice.contradictions).toEqual(["CON-004", "CON-004"]);
+  expect((await loadSpec(db, pid)).parts.filter((p) => p.kind === "contradiction")).toHaveLength(4);
+});
