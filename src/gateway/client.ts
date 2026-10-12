@@ -27,7 +27,9 @@ export class GatewayUnavailable extends Error {
   constructor(public readonly reason: FailReason) { super("the model gateway is not available"); this.name = "GatewayUnavailable"; }
 }
 
-const MAX_TOKENS = 4000; // well above the empty-content trap seen with max_tokens 40 (SYSTEM-FACTS)
+// 16k: a full first-story contract (work + steps + screens + apis + links) in Thai overran 4000 and came back
+// truncated mid-JSON — the round failed as bot_could_not_answer. Cheap tiers cap lower anyway; this is a ceiling.
+const MAX_TOKENS = 16_384;
 
 // `"tier:<t>"` → { tier } (the gateway picks the provider) · `"<provider>/<model>"` → { provider, model }.
 export function modelRequest(model: string): { tier: Tier } | { provider: string; model: string } {
