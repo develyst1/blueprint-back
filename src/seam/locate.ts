@@ -1,5 +1,6 @@
-// SPEC-A-005 § S1.2: where in the spec does a request belong? A deterministic Thai word match against the latest
-// confirmed version — no model, no gateway call. Reads only.
+// SPEC-A-005 § S1.2 / § S1.2b: where in the spec does a request belong? A deterministic Thai word match against the latest
+// confirmed version — no model, no gateway call. Reads only. A part's score is the larger of its request share (matched request
+// words ÷ request words) and — § S1.2b, D-076 — its title share, so a long natural sentence that contains a part's title still finds it.
 import { desc, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { versions } from "../db/schema";
@@ -9,6 +10,11 @@ import { requireProject } from "./feed";
 
 export const LOCATE_THRESHOLD = 0.5;
 const MAX_CANDIDATES = 10;
+// § S1.2b: a title share counts only for a title of ≥ 3 distinct words, with ≥ 2 of them in the request and a share ≥ 0.6 —
+// a 2-word title ("ระบบปฏิทิน") would otherwise pass on one shared word.
+const TITLE_MIN_WORDS = 3;
+const TITLE_MIN_HITS = 2;
+const TITLE_MIN_SHARE = 0.6;
 
 export class NoConfirmedVersion extends Error {
   constructor() { super("locate needs a confirmed version — confirm the spec first"); this.name = "NoConfirmedVersion"; }
@@ -42,7 +48,11 @@ function score(request: string[], parts: Part[], links: Link[]): Candidate[] {
     ];
     const matched = request.filter((w) => fields.some(([, ws]) => ws.has(w)));
     const where = fields.filter(([, ws]) => matched.some((w) => ws.has(w))).map(([name]) => name);
-    return { key: p.key, kind: p.kind, title: p.title, score: Math.round((matched.length / request.length) * 100) / 100, matched, where };
+    const titleWords = fields[0]![1];
+    const titleHits = [...titleWords].filter((w) => request.includes(w)).length;
+    const titleShare = titleWords.size >= TITLE_MIN_WORDS && titleHits >= TITLE_MIN_HITS && titleHits / titleWords.size >= TITLE_MIN_SHARE ? titleHits / titleWords.size : 0;
+    const share = Math.max(matched.length / request.length, titleShare);
+    return { key: p.key, kind: p.kind, title: p.title, score: Math.round(share * 100) / 100, matched, where };
   }).sort((a, b) => b.score - a.score || b.matched.length - a.matched.length || compareKeys(a.key, b.key));
 }
 
