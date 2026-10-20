@@ -3,13 +3,15 @@ import { z } from "zod";
 // The one place that says which kinds of part and link exist. A new kind is an entry here,
 // never a table change (REQ-001 R2). Every body is strict: an unknown field is an error.
 export const PART_KINDS = {
-  work: { prefix: "WRK", body: z.strictObject({ goal: z.string().optional() }) },
+  // goal: our understanding of what the user wants, one paragraph (REQ-017 G-1) — optional, so an old spec still applies
+  work: { prefix: "WRK", body: z.strictObject({ goal: z.string().min(1).max(600).optional() }) },
   step: { prefix: "STEP", body: z.strictObject({ ends: z.boolean().default(false) }) },
   interaction: {
     prefix: "INT",
     body: z.strictObject({ text: z.string().min(1), reply: z.string().optional() }),
   },
-  role: { prefix: "ROLE", body: z.strictObject({}) },
+  // duty: what this role does in this work, one line (REQ-017 G-2) — optional, so an old `{}` body still applies
+  role: { prefix: "ROLE", body: z.strictObject({ duty: z.string().min(1).max(120).optional() }) },
   screen: {
     prefix: "SCR",
     body: z.strictObject({

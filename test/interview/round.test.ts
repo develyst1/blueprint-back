@@ -145,6 +145,21 @@ test("AC-5: two accepted questions + three changes are one change set; undo rest
   expect(await loadSpec(db, pid)).toEqual(before);
 });
 
+test("TASK-C-044 (REQ-017 G-1/G-2): a recorded reply that adds a work with a goal and two roles with a duty is applied, and the parts carry the fields (replay only)", async () => {
+  const { db, pid } = await project();
+  const had = new Set((await loadSpec(db, pid)).parts.map((p) => p.key)); // the example already has roles with these titles: only the NEW parts count
+  const { gateway } = fakeGateway([said(JSON.parse(recording("round-c044-goal-duty.json")))]);
+  const round = await runRound(db, gateway, pid, { message: "อยากให้จองห้องเองได้ พนักงานเป็นคนจอง ผู้ดูแลเป็นคนอนุมัติ" }, { today: TODAY });
+  expect(round.status).toBe("applied");
+  const after = await loadSpec(db, pid);
+  const added = after.parts.filter((p) => !had.has(p.key));
+  const work = added.find((p) => p.kind === "work")!;
+  expect(String(work.body.goal)).toContain("จองห้องประชุมเองผ่านเว็บ");
+  expect(String(work.body.goal).length).toBeLessThanOrEqual(600);
+  const duties = added.filter((p) => p.kind === "role").map((p) => [p.title, p.body.duty]);
+  expect(duties).toEqual([["พนักงาน", "เลือกห้องและส่งคำขอจอง"], ["ผู้ดูแลห้อง", "อนุมัติหรือปฏิเสธคำขอจองห้องใหญ่"]]);
+});
+
 test("AC-6: an invalid change → nothing applied, one correction call with the error; still invalid → changes_rejected", async () => {
   const { db, pid } = await project();
   const before = await loadSpec(db, pid);

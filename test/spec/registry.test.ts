@@ -93,3 +93,24 @@ test("A-033: a question body takes parkedReason and proposedAnswerStamp (a real 
   // the registry keeps its own copy of the stamp list (types.ts imports the registry) — it must stay the same list
   expect(body.shape.proposedAnswerStamp.unwrap().options).toEqual(Stamp.options);
 });
+
+// TASK-C-044 (REQ-017 G-1 / G-2, D-108): a work carries its understanding, a role carries its duty — both optional and strict.
+test("work.goal: 1–600 characters; 600 is OK, 601 and the empty string are refused; an old body without it still applies", () => {
+  const body = PART_KINDS.work.body;
+  expect(body.safeParse({ goal: "ก".repeat(600) }).success).toBe(true);
+  expect(body.safeParse({ goal: "ก".repeat(601) }).success).toBe(false);
+  expect(body.safeParse({ goal: "" }).success).toBe(false);
+  expect(body.safeParse({}).success).toBe(true);
+  expect(body.safeParse({ goal: "จองห้องได้เอง", extra: 1 }).success).toBe(false); // still strict
+});
+
+test("role.duty: 1–120 characters; a role with a duty is OK, a 121-character duty and the empty string are refused; an old `{}` body still applies; an unknown field is still refused", () => {
+  const body = PART_KINDS.role.body;
+  expect(body.safeParse({ duty: "อนุมัติการจองห้องใหญ่" }).success).toBe(true);
+  expect(body.safeParse({ duty: "ก".repeat(120) }).success).toBe(true);
+  expect(body.safeParse({ duty: "ก".repeat(121) }).success).toBe(false);
+  expect(body.safeParse({ duty: "" }).success).toBe(false);
+  expect(body.safeParse({}).success).toBe(true);
+  expect(body.safeParse({ duty: "อนุมัติ", extra: 1 }).success).toBe(false);
+  expect(body.safeParse({ title: "x" }).success).toBe(false);
+});

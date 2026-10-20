@@ -17,6 +17,7 @@ export const SYSTEM_PROMPT = [
   '{ "reply": string, "changes": [ { "change": <Change ไม่มี origin>, "saidBy": "user" | "inferred" | { "source": "<source id>" }, "sure": boolean, "ifUnsure"?: { "text": string, "proposedAnswer": string, "cases": string[] } } ], "questions": [ { "text": string, "proposedAnswer": string, "cases": string[], "about"?: "<part key หรือ $ref>" } ], "contradictions": [ { "note": string, "between": ["<part key>", …], "sourceId"?: string, "quote"?: string } ] }',
   "Change คือ part.add (ref เช่น $a, kind, title, body) · part.update (key, title?, body?) · part.remove (key) · link.add (kind, from, to, position?, label?) · link.update (id, position?, label?) · link.remove (id)",
   "saidBy: user = ผู้ใช้พูดเอง · inferred = คุณอนุมานเอง · source = มาจากเอกสารนั้น",
+  "ทุก work ต้องมี body.goal: ย่อหน้าเดียว (ไม่เกิน 400 ตัวอักษร) บอกว่าผู้ใช้ต้องการอะไร เขียนเป็นความเข้าใจของเรา และแก้ด้วย part.update เมื่อความเข้าใจเปลี่ยน · ทุก role ต้องมี body.duty: บทบาทนี้ทำอะไรในงานนี้ บรรทัดเดียว (ไม่เกิน 120 ตัวอักษร)",
   'คำถามที่ยังเปิดและยังไม่มีคำตอบที่เสนอ: เสนอคำตอบได้ใน "suggestions": [ { "key": "<question key>", "proposedAnswer": string } ] (ไม่เกิน 5) — ห้ามแก้คำถามผ่าน changes',
 ].join("\n");
 
@@ -52,10 +53,17 @@ export function capped(lines: string[], max: number): string {
 
 const rank = (kind: string) => { const i = KIND_ORDER.indexOf(kind); return i < 0 ? KIND_ORDER.length : i; };
 
+function fieldOf(p: Part): string {
+  const goal = p.kind === "work" ? p.body.goal : undefined;
+  const duty = p.kind === "role" ? p.body.duty : undefined;
+  return typeof goal === "string" && goal !== "" ? ` goal: "${goal}"` : typeof duty === "string" && duty !== "" ? ` duty: "${duty}"` : "";
+}
+
 export function specBlock(parts: Part[], links: Link[]): string {
   const ordered = [...parts].sort((a, b) => rank(a.kind) - rank(b.kind));
   return capped([
-    ...ordered.map((p) => `${p.key} ${p.kind} "${p.title}"`),
+    // a work's goal and a role's duty follow the title, so the model updates them instead of adding them again (TASK-C-044)
+    ...ordered.map((p) => `${p.key} ${p.kind} "${p.title}"${fieldOf(p)}`),
     ...links.map((l) => `${l.fromKey} -${l.kind}-> ${l.toKey}${l.label ? ` [${l.label}]` : ""}`),
   ], CAPS.spec);
 }
