@@ -2,6 +2,7 @@ import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Db } from "../../db/client";
 import type { Gateway } from "../../gateway/client";
 import { askQuestion, latestQuiz, markItem, startQuiz } from "../../quiz/store";
+import { byOf } from "../actor";
 import { errors } from "../errors";
 import { ProjectParams } from "./projects";
 
@@ -41,7 +42,7 @@ export function quizRoutes(app: OpenAPIHono, db: Db, gateway: Gateway) {
     path: "/v1/projects/{projectId}/quizzes",
     request: { params: ProjectParams },
     responses: { 201: json(QuizSchema, "a new quiz — it becomes the latest"), 404: errors[404] },
-  }), async (c) => c.json(await startQuiz(db, c.req.valid("param").projectId), 201));
+  }), async (c) => c.json(await startQuiz(db, c.req.valid("param").projectId, byOf(c)), 201));
 
   app.openapi(createRoute({
     method: "get",
@@ -63,7 +64,7 @@ export function quizRoutes(app: OpenAPIHono, db: Db, gateway: Gateway) {
     },
   }), async (c) => {
     const { projectId, quizId } = c.req.valid("param");
-    return c.json(await askQuestion(db, gateway, projectId, quizId, c.req.valid("json").question), 200);
+    return c.json(await askQuestion(db, gateway, projectId, quizId, c.req.valid("json").question, byOf(c)), 200);
   });
 
   app.openapi(createRoute({
@@ -80,6 +81,6 @@ export function quizRoutes(app: OpenAPIHono, db: Db, gateway: Gateway) {
     responses: { 200: json(QuizItemSchema, "the marked item"), 400: errors[400], 404: errors[404], 409: errors[409] },
   }), async (c) => {
     const { projectId, quizId, itemId } = c.req.valid("param");
-    return c.json(await markItem(db, projectId, quizId, itemId, c.req.valid("json"), { today: bangkokToday() }), 200);
+    return c.json(await markItem(db, projectId, quizId, itemId, c.req.valid("json"), { today: bangkokToday(), by: byOf(c) }), 200);
   });
 }

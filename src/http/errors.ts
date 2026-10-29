@@ -2,6 +2,7 @@ import { z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { GatewayUnavailable } from "../gateway/client";
+import { NameRequired } from "./actor";
 import { NothingToRetry } from "../interview/round";
 import { AlreadyAdded, LinkRefused, UnsupportedFile } from "../sources/service";
 import {
@@ -67,6 +68,7 @@ export function onError(err: Error, c: Context) {
     return c.json(body("validation", err.message, err.index === null ? undefined : { index: err.index }), 400);
   }
   if (err instanceof z.ZodError) return c.json(fromZod(err), 400);
+  if (err instanceof NameRequired) return c.json(body("name_required", err.message), 400);
   if (err instanceof NotFound) return c.json(body("not_found", err.message), 404);
   if (err instanceof UndoConflict) return c.json(body("undo_conflict", err.message, { parts: err.parts }), 409);
   if (err instanceof ConfirmBlocked) return c.json(body("confirm_blocked", err.message, { items: err.items }), 409);

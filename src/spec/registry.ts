@@ -75,6 +75,9 @@ export const PART_KINDS = {
       status: z.enum(["open", "resolved"]).default("open"),
     }),
   },
+  // REQ-103: a requirement typed in by a person (the PM). The interview never writes one — it is not in round.ts MODEL_KINDS —
+  // and no link may touch it (checkLink), so it stands alone and never makes the spec "stuck" (SPEC-104 D6, D7).
+  requirement: { prefix: "REQ", body: z.strictObject({ text: z.string().min(1).max(4000) }) },
 } as const;
 
 export type PartKind = keyof typeof PART_KINDS;
@@ -121,6 +124,7 @@ export function checkLink(link: {
 }): string | null {
   const rule: LinkRule | undefined = (LINK_KINDS as Record<string, LinkRule>)[link.kind];
   if (!rule) return `unknown link kind "${link.kind}"`;
+  if (link.fromKind === "requirement" || link.toKind === "requirement") return "a requirement stands alone — no link may touch it";
   if (!allows(rule.from, link.fromKind)) return `a ${link.kind} link cannot start at a ${link.fromKind}`;
   if (!allows(rule.to, link.toKind)) return `a ${link.kind} link cannot end at a ${link.toKind}`;
   if (!rule.ordered && link.position != null) return `a ${link.kind} link has no position`;

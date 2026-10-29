@@ -4,7 +4,7 @@ import { versions } from "../../src/db/schema";
 import {
   confirmVersion, createProject, getProject, getVersion, listProjects,
 } from "../../src/projects/service";
-import { AlreadyConfirmed, ConfirmBlocked, NotFound, NothingToConfirm, QuizNot100, ValidationError } from "../../src/spec/errors";
+import { NotFound, ValidationError } from "../../src/spec/errors";
 import { applyChangeSet, loadSpec, undoChangeSet } from "../../src/spec/store";
 import { computeStuck } from "../../src/spec/stuck";
 import type { Change } from "../../src/spec/types";
@@ -44,52 +44,43 @@ test("unknown organisation is NotFound; a blank name is a ValidationError", asyn
   expect(await listProjects(db)).toEqual([]);
 });
 
-test("AC-10: confirm is refused while something is stuck, and writes no version", async () => {
+test("AC-10 (REQ-103 D2): a label is allowed while something is stuck — the version row is written", async () => {
   const db = await testDb();
   const { project } = await withExample(db);
-  const err = await caught(confirmVersion(db, project.id, "operator"));
-  expect(err).toBeInstanceOf(ConfirmBlocked);
-  expect((err as ConfirmBlocked).items).toEqual([
+  expect(computeStuck(await loadSpec(db, project.id))).toEqual([
     { kind: "open_question", key: "Q-001", title: "ผู้ดูแลไม่ตอบใน 24 ชม. ทำอย่างไร" },
   ]);
-  expect(await db.select().from(versions)).toHaveLength(0);
+  expect(await confirmVersion(db, project.id, "operator", "ยังมีจุดค้าง")).toEqual({ version: 1 });
+  const [row] = await db.select().from(versions);
+  expect([row!.label, row!.confirmedBy, row!.quiz]).toEqual(["ยังมีจุดค้าง", "operator", null]);
 });
 
-test("an empty project has nothing to confirm", async () => {
+test("an empty project can be labelled (REQ-103 D2); an unknown project is NotFound; a blank label is refused and writes nothing", async () => {
   const db = await testDb();
   const project = await createProject(db, { name: "ว่าง" });
-  expect(await caught(confirmVersion(db, project.id, "operator"))).toBeInstanceOf(NothingToConfirm);
-  expect(await caught(confirmVersion(db, "00000000-0000-0000-0000-000000000099", "operator"))).toBeInstanceOf(NotFound);
-  expect(await db.select().from(versions)).toHaveLength(0);
+  expect(await confirmVersion(db, project.id, "operator", "  ว่างเปล่า  ")).toEqual({ version: 1 });
+  const [row] = await db.select().from(versions);
+  expect([row!.label, row!.lastChangeSet]).toEqual(["ว่างเปล่า", null]); // trimmed; no change set to point at
+  expect(await caught(confirmVersion(db, "00000000-0000-0000-0000-000000000099", "operator", "x"))).toBeInstanceOf(NotFound);
+  expect(await caught(confirmVersion(db, project.id, "operator", "   "))).toBeInstanceOf(ValidationError);
+  expect(await db.select().from(versions)).toHaveLength(1);
 });
 
-test("A-050 (D-030): confirming an unchanged spec again → AlreadyConfirmed { version }, nothing written; a change (edit or undo) re-opens it", async () => {
+test("A-050 (REQ-103 D2): labelling an unchanged spec again is allowed — labels are tags, one row each; an edit or undo is just another label", async () => {
   const db = await testDb();
   const { project, apply } = await withExample(db);
   await apply([answerQ001]);
   await passingQuiz(db, project.id);
-  expect(await confirmVersion(db, project.id, "operator")).toEqual({ version: 1 });
+  expect(await confirmVersion(db, project.id, "operator", "หนึ่ง")).toEqual({ version: 1 });
+  expect(await confirmVersion(db, project.id, "operator", "สอง")).toEqual({ version: 2 }); // same state: no AlreadyConfirmed
+  expect(await db.select().from(versions)).toHaveLength(2);
 
-  const again = await caught(confirmVersion(db, project.id, "operator"));
-  expect(again).toBeInstanceOf(AlreadyConfirmed);
-  expect((again as AlreadyConfirmed).version).toBe(1);
-  expect(await db.select().from(versions)).toHaveLength(1);
-
-  // order: refused before any quiz code — a fresh, empty quiz would otherwise be quiz_not_100
-  await startQuiz(db, project.id);
-  expect(await caught(confirmVersion(db, project.id, "operator"))).toBeInstanceOf(AlreadyConfirmed);
-
-  // an edit, then a fresh 100 % quiz → v2
+  await startQuiz(db, project.id); // a fresh, empty quiz no longer blocks a label
   const edit = await apply([{ op: "part.update", key: "STEP-001", title: "ค้นหาห้องที่ว่าง" }]);
-  expect(await caught(confirmVersion(db, project.id, "operator"))).toBeInstanceOf(QuizNot100); // not refused as unchanged
-  await passingQuiz(db, project.id);
-  expect(await confirmVersion(db, project.id, "operator")).toEqual({ version: 2 });
-  expect((await caught(confirmVersion(db, project.id, "operator")) as AlreadyConfirmed).version).toBe(2);
-
-  // an undo is a change too: the spec reads like v1 again, but it is a new change set → v3 can confirm
+  expect(await confirmVersion(db, project.id, "operator", "สาม")).toEqual({ version: 3 });
   await undoChangeSet(db, project.id, edit.changeSetId);
-  await passingQuiz(db, project.id);
-  expect(await confirmVersion(db, project.id, "operator")).toEqual({ version: 3 });
+  expect(await confirmVersion(db, project.id, "operator", "สี่")).toEqual({ version: 4 });
+  expect((await db.select().from(versions)).map((r) => r.label).sort()).toEqual(["สอง", "สาม", "สี่", "หนึ่ง"].sort());
 });
 
 test("AC-11: a confirmed version is frozen; later edits make a new version", async () => {

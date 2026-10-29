@@ -4,6 +4,7 @@ import type { Gateway } from "../../gateway/client";
 import {
   listMessages, MAX_ACCEPT, MAX_ANSWER_CHARS, MAX_ANSWERS, MAX_MESSAGE_CHARS, MAX_PARK, MAX_PARK_REASON_CHARS, runRound,
 } from "../../interview/round";
+import { byOf } from "../actor";
 import { errors } from "../errors";
 import { ProjectParams } from "./projects";
 
@@ -65,7 +66,7 @@ export function roundRoutes(app: OpenAPIHono, db: Db, gateway: Gateway) {
       200: { description: "the round — every outcome is 200, including a bot that could not answer", content: { "application/json": { schema: RoundSchema } } },
       400: errors[400], 404: errors[404], 409: errors[409],
     },
-  }), async (c) => c.json(await runRound(db, gateway, c.req.valid("param").projectId, c.req.valid("json"), { today: bangkokToday() }), 200));
+  }), async (c) => c.json(await runRound(db, gateway, c.req.valid("param").projectId, c.req.valid("json"), { today: bangkokToday(), by: byOf(c) }), 200));
 
   app.openapi(createRoute({
     method: "get",

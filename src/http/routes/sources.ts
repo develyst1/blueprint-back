@@ -3,6 +3,7 @@ import type { Db } from "../../db/client";
 import { ValidationError } from "../../spec/errors";
 import { Origin } from "../../spec/types";
 import { addFile, addLink, getSource, listSources } from "../../sources/service";
+import { byOf } from "../actor";
 import { errors } from "../errors";
 import { ProjectParams } from "./projects";
 
@@ -60,14 +61,14 @@ export function sourceRoutes(app: OpenAPIHono, db: Db, dir: string) {
       let origin: unknown;
       try { origin = JSON.parse(String(form.origin ?? "")); } catch { throw new ValidationError(null, "origin: not JSON"); }
       return c.json(await addFile(db, dir, projectId,
-        { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()), origin }), 201);
+        { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()), origin }, byOf(c)), 201);
     }
     if (!type.startsWith("application/json")) {
       throw new ValidationError(null, "send a file as multipart/form-data or a link as application/json");
     }
     const body = c.req.valid("json");
     if (!("link" in body)) throw new ValidationError(null, "link: a link is required");
-    return c.json(await addLink(db, dir, projectId, body), 201);
+    return c.json(await addLink(db, dir, projectId, body, undefined, byOf(c)), 201);
   });
 
   app.openapi(createRoute({

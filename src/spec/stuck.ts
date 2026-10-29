@@ -66,7 +66,8 @@ export function computeStuck(spec: Spec): StuckItem[] {
   const items: StuckItem[] = [
     ...spec.parts.filter((p) => p.kind === "question" && p.body.status === "open")
       .map((p) => ({ kind: "open_question" as const, key: p.key, title: p.title })),
-    ...spec.parts.filter((p) => p.kind !== "question" && p.kind !== "contradiction" && !linked.has(p.key))
+    // REQ-103 D7: a requirement is never linked, so it is never "unlinked".
+    ...spec.parts.filter((p) => p.kind !== "question" && p.kind !== "contradiction" && p.kind !== "requirement" && !linked.has(p.key))
       .map((p) => ({ kind: "unlinked_part" as const, key: p.key, title: p.title })),
     ...flowBreaks(spec, partByKey),
     ...spec.parts.filter((p) => p.origin.stamp === "team-proposed" && p.kind !== "contradiction")

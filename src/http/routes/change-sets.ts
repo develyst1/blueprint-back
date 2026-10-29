@@ -2,6 +2,7 @@ import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Db } from "../../db/client";
 import { applyChangeSet, readChangeSet, undoChangeSet } from "../../spec/store";
 import { Cause, Change } from "../../spec/types";
+import { byOf } from "../actor";
 import { errors } from "../errors";
 import { ProjectParams } from "./projects";
 
@@ -26,7 +27,7 @@ export function changeSetRoutes(app: OpenAPIHono, db: Db) {
       404: errors[404],
       413: errors[413],
     },
-  }), async (c) => c.json(await applyChangeSet(db, c.req.valid("param").projectId, c.req.valid("json")), 201));
+  }), async (c) => c.json(await applyChangeSet(db, c.req.valid("param").projectId, c.req.valid("json"), { by: byOf(c) }), 201));
 
   app.openapi(createRoute({
     method: "post",
@@ -39,7 +40,7 @@ export function changeSetRoutes(app: OpenAPIHono, db: Db) {
     },
   }), async (c) => {
     const { projectId, changeSetId } = c.req.valid("param");
-    return c.json(await undoChangeSet(db, projectId, changeSetId), 201);
+    return c.json(await undoChangeSet(db, projectId, changeSetId, byOf(c)), 201);
   });
 
   // SPEC-A-006 § C1: the chat's change card — what a set did, and whether undo would be accepted right now.

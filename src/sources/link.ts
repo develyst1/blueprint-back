@@ -86,7 +86,25 @@ async function refusal(url: URL, deps: LinkDeps): Promise<string | null> {
   else {
     try { addresses = (await deps.lookup(host)).map((r) => r.address); } catch { return "unresolvable"; }
   }
-  return addresses.some(isPrivateAddress) ? "the link points at a private or local address" : null;
+  return addresses.some(isPrivateAddress) && !testAllowed(url) ? "the link points at a private or local address" : null;
+}
+
+// SPEC-104 § Test-only seam: `BLUEPRINT_LINK_TEST_ALLOW=<host>:<port>[,<host>:<port>…]` lets an exact list of local
+// addresses through the private-address refusal, so QA can serve a page on :4295 and re-fetch a failed link. It is honoured
+// only when DATABASE_URL starts with `pglite:`; with any real database it is ignored (and said so once), so it can never
+// open a deployment to local addresses. Read at call time. Every redirect target goes through `refusal`, so it is checked too.
+let ignoredReported = false;
+export function testAllowed(url: URL, env: Record<string, string | undefined> = process.env): boolean {
+  const raw = env.BLUEPRINT_LINK_TEST_ALLOW?.trim() ?? "";
+  if (!raw) return false;
+  if (!(env.DATABASE_URL ?? "").startsWith("pglite:")) {
+    if (!ignoredReported) console.error("[link] test allow-list ignored");
+    ignoredReported = true;
+    return false;
+  }
+  const port = url.port || (url.protocol === "https:" ? "443" : "80");
+  const at = `${url.hostname.replace(/^\[|\]$/g, "").toLowerCase()}:${port}`;
+  return raw.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean).includes(at);
 }
 
 // An unknown charset label is read as UTF-8 and says so (TASK-A-016 Q4).

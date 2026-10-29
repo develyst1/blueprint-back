@@ -43,6 +43,13 @@
       "when": 1791493451103,
       "tag": "0005_spotty_cardiac",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793253779849,
+      "tag": "0006_woozy_jocasta",
+      "breakpoints": true
     }
   ]
 }

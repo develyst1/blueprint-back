@@ -1,6 +1,7 @@
 // Sources: DB rows + the add flow (SPEC-A-003 § Data Model, § Extraction). The client only ever sees the final status.
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { recordAudit } from "../audit/events";
 import type { Db } from "../db/client";
 import { projects, sources } from "../db/schema";
 import { NotFound, ValidationError } from "../spec/errors";
@@ -68,7 +69,7 @@ type Outcome = { status: "read"; text: string; note?: string } | { status: "fail
 // pending → original stored → extracted → read/failed, in one transaction, so `pending` is never seen outside.
 async function addRow(db: Db, dir: string, projectId: string, row: {
   kind: "file" | "link"; name: string; mime: string | null; bytes: Uint8Array; origin: Origin; outcome: () => Promise<Outcome>;
-}): Promise<Source> {
+}, by?: string): Promise<Source> {
   const sha256 = sha256Of(row.bytes);
   const already = await existing(db, projectId, sha256);
   if (already) throw new AlreadyAdded(already);
@@ -83,6 +84,8 @@ async function addRow(db: Db, dir: string, projectId: string, row: {
       const [done] = await tx.update(sources).set(o.status === "read"
         ? { status: "read", text: o.text, note: o.note ?? null }
         : { status: "failed", reason: o.reason }).where(eq(sources.id, pending!.id)).returning();
+      // REQ-103: the source as GET …/sources/{id} returns it (text included), in the same transaction as the add.
+      if (by) await recordAudit(tx, { projectId, by, action: "source_add", entity: `source:${done!.id}`, after: toSource(done!, true) });
       return toSource(done!, false);
     });
   } catch (e) {
@@ -96,7 +99,7 @@ async function addRow(db: Db, dir: string, projectId: string, row: {
 }
 
 export async function addFile(db: Db, dir: string, projectId: string,
-  input: { name: string; bytes: Uint8Array; origin: unknown }): Promise<Source> {
+  input: { name: string; bytes: Uint8Array; origin: unknown }, by?: string): Promise<Source> {
   await requireProject(db, projectId);
   const origin = sourceOrigin(input.origin);
   const extracted = await extract(input.bytes, input.name);
@@ -106,11 +109,11 @@ export async function addFile(db: Db, dir: string, projectId: string,
     outcome: async () => extracted.status === "read"
       ? { status: "read", text: extracted.text, note: extracted.note }
       : { status: "failed", reason: extracted.reason },
-  });
+  }, by);
 }
 
 export async function addLink(db: Db, dir: string, projectId: string,
-  input: { link: string; origin: unknown }, deps?: LinkDeps): Promise<Source> {
+  input: { link: string; origin: unknown }, deps?: LinkDeps, by?: string): Promise<Source> {
   await requireProject(db, projectId);
   const origin = sourceOrigin(input.origin);
   const r = await fetchLink(input.link, deps);
@@ -125,15 +128,15 @@ export async function addLink(db: Db, dir: string, projectId: string,
   const [before] = await db.select().from(sources)
     .where(and(eq(sources.projectId, projectId), eq(sources.kind, "link"), eq(sources.name, r.name)));
   if (before && before.status === "read") throw new AlreadyAdded(before.id);
-  if (before) return retryLink(db, dir, projectId, before, { mime: r.mime, bytes, outcome });
+  if (before) return retryLink(db, dir, projectId, before, { mime: r.mime, bytes, outcome }, by);
 
-  return addRow(db, dir, projectId, { kind: "link", name: r.name, mime: r.mime, bytes, origin, outcome: async () => outcome });
+  return addRow(db, dir, projectId, { kind: "link", name: r.name, mime: r.mime, bytes, origin, outcome: async () => outcome }, by);
 }
 
 // Re-fetch of a failed link: update that row. If the new body is already another source of the project → 409 with
 // that id, and the failed row stays exactly as it was.
 async function retryLink(db: Db, dir: string, projectId: string, row: Row,
-  next: { mime: string | null; bytes: Uint8Array; outcome: Outcome }): Promise<Source> {
+  next: { mime: string | null; bytes: Uint8Array; outcome: Outcome }, by?: string): Promise<Source> {
   const sha256 = sha256Of(next.bytes);
   const owner = await existing(db, projectId, sha256);
   if (owner && owner !== row.id) throw new AlreadyAdded(owner);
@@ -147,6 +150,12 @@ async function retryLink(db: Db, dir: string, projectId: string, row: Row,
           ? { status: "read", text: o.text, note: o.note ?? null, reason: null }
           : { status: "failed", reason: o.reason, text: null, note: null }),
       }).where(eq(sources.id, row.id)).returning();
+      // REQ-103: the old row is kept whole in `before` (text, sha256, storedAs, status, reason). The old original also stays
+      // on disk: storage is content-addressed by sha (sources/store.ts) and nothing in src/ deletes a stored file.
+      if (by) {
+        const form = (r: Row) => ({ ...toSource(r, true), storedAs: r.storedAs });
+        await recordAudit(tx, { projectId, by, action: "source_refetch", entity: `source:${row.id}`, before: form(row), after: form(done!) });
+      }
       return toSource(done!, false);
     });
   } catch (e) {

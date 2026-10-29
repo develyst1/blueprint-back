@@ -4,7 +4,7 @@ import { flowchart, sequence, swimlane } from "../../src/spec/diagrams";
 import type { Change } from "../../src/spec/types";
 import { answerQ001, meetingRoom } from "../fixtures/meeting-room";
 import { testDb } from "../helpers/db";
-import { passingQuiz } from "../helpers/quiz";
+import { BY } from "../helpers/by";
 
 const origin = { stamp: "operator", date: "2026-10-08" };
 
@@ -14,7 +14,8 @@ async function api() {
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await app.request(path, {
       method,
-      ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
+      headers: { ...BY, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     return { status: res.status, body: (await res.json()) as any };
   };
@@ -149,7 +150,7 @@ test("AC-9: a bad 2nd change is 400 with details.index 1 and writes nothing; an 
   expect(malformed.body.error.details.index).toBe(0);
 
   // Request faults keep the one error shape: no body, a non-JSON body, an unknown route.
-  for (const init of [{ method: "POST" }, { method: "POST", body: "x", headers: { "content-type": "text/plain" } }]) {
+  for (const init of [{ method: "POST", headers: BY }, { method: "POST", body: "x", headers: { "content-type": "text/plain", ...BY } }]) {
     const res = await createApp(await testDb()).request("/v1/projects", init);
     expect(res.status).toBe(400);
     expect(((await res.json()) as any).error.code).toBe("validation");
@@ -159,29 +160,22 @@ test("AC-9: a bad 2nd change is 400 with details.index 1 and writes nothing; an 
   expect(nowhere.body.error.code).toBe("not_found");
 });
 
-test("AC-10/11: confirm blocked while stuck; version 1 is frozen after a later edit", async () => {
-  const { call, project, changeSet, db } = await api();
+test("AC-10/11 (REQ-103 D2, D4): a label is allowed while stuck and twice on one state; version 1 is frozen after a later edit", async () => {
+  const { call, project, changeSet } = await api();
   const id = await project();
-  await changeSet(id, meetingRoom);
-  const blocked = await call("POST", `/v1/projects/${id}/versions`, { confirmedBy: "operator" });
-  expect(blocked.status).toBe(409);
-  expect(blocked.body.error.code).toBe("confirm_blocked");
-  expect(blocked.body.error.details.items.map((i: any) => i.key)).toEqual(["Q-001"]);
+  await changeSet(id, meetingRoom); // Q-001 is still open: stuck
+  const stuck = await call("POST", `/v1/projects/${id}/versions`, { label: "ยังมีจุดค้าง" });
+  expect(stuck).toEqual({ status: 201, body: { version: 1, label: "ยังมีจุดค้าง" } });
 
-  await changeSet(id, [answerQ001]);
-  expect((await call("POST", `/v1/projects/${id}/versions`, { confirmedBy: "   " })).status).toBe(400);
-  await passingQuiz(db, id); // REQ-005 R6: confirm needs a passing quiz
-  const ok = await call("POST", `/v1/projects/${id}/versions`, { confirmedBy: "operator" });
-  expect(ok).toEqual({ status: 201, body: { version: 1 } });
-  // A-050 (D-030): the same spec again → 409 already_confirmed { version: 1 }
-  const twice = await call("POST", `/v1/projects/${id}/versions`, { confirmedBy: "operator" });
-  expect([twice.status, twice.body.error.code, twice.body.error.details]).toEqual([409, "already_confirmed", { version: 1 }]);
+  expect((await call("POST", `/v1/projects/${id}/versions`, { label: "   " })).status).toBe(400);
+  const twice = await call("POST", `/v1/projects/${id}/versions`, { label: "อีกป้าย" }); // same spec again: labels are tags
+  expect(twice).toEqual({ status: 201, body: { version: 2, label: "อีกป้าย" } });
   await changeSet(id, [{ op: "part.update", key: "STEP-001", title: "ค้นหาห้องที่ว่าง" }]);
   const v1 = await call("GET", `/v1/projects/${id}/versions/1`);
   expect(v1.status).toBe(200);
   expect(v1.body.parts.find((p: any) => p.key === "STEP-001").title).toBe("ค้นหาห้องว่าง");
-  expect(v1.body.confirmedBy).toBe("operator");
-  expect((await call("GET", `/v1/projects/${id}/versions/2`)).status).toBe(404);
+  expect(v1.body.confirmedBy).toBe("โด่ง"); // the typed name, from X-Blueprint-By
+  expect((await call("GET", `/v1/projects/${id}/versions/3`)).status).toBe(404);
 });
 
 test("AC-13: the OpenAPI document lists every route of the SPEC", async () => {
@@ -222,7 +216,7 @@ test("limits: a body over 5 MB is 413 too_large; 5001 changes and an out-of-rang
   const id = await project();
   const app = createApp(await testDb());
   const pid = (await (await app.request("/v1/projects", {
-    method: "POST", body: JSON.stringify({ name: "x" }), headers: { "content-type": "application/json" },
+    method: "POST", body: JSON.stringify({ name: "x" }), headers: { "content-type": "application/json", ...BY },
   })).json() as any).id;
 
   // 5,000,001 bytes of valid JSON: one change whose title pads the body to size.
@@ -230,7 +224,7 @@ test("limits: a body over 5 MB is 413 too_large; 5001 changes and an out-of-rang
   const big = shell.replace('"title":""', `"title":"${"x".repeat(5_000_001 - shell.length)}"`);
   expect(Buffer.byteLength(big)).toBe(5_000_001);
   const tooLarge = await app.request(`/v1/projects/${pid}/change-sets`, {
-    method: "POST", body: big, headers: { "content-type": "application/json" },
+    method: "POST", body: big, headers: { "content-type": "application/json", ...BY },
   });
   expect(tooLarge.status).toBe(413);
   expect(((await tooLarge.json()) as any).error.code).toBe("too_large");

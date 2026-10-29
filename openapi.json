@@ -41,7 +41,8 @@
                   "data",
                   "decision",
                   "question",
-                  "contradiction"
+                  "contradiction",
+                  "requirement"
                 ],
                 "type": "string"
               },
@@ -569,6 +570,12 @@
             "type": "string"
           },
           "before": {},
+          "by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "cause": {
             "properties": {
               "kind": {
@@ -611,9 +618,47 @@
         "required": [
           "changeSetId",
           "at",
+          "by",
           "cause",
           "entity",
           "op"
+        ],
+        "type": "object"
+      },
+      "Labels": {
+        "properties": {
+          "labels": {
+            "items": {
+              "properties": {
+                "by": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "labelledAt": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "version",
+                "label",
+                "labelledAt",
+                "by"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "labels"
         ],
         "type": "object"
       },
@@ -868,7 +913,8 @@
               "data",
               "decision",
               "question",
-              "contradiction"
+              "contradiction",
+              "requirement"
             ],
             "type": "string"
           },
@@ -1122,6 +1168,45 @@
         ],
         "type": "object"
       },
+      "ProjectHistoryEntry": {
+        "properties": {
+          "after": {},
+          "at": {
+            "type": "string"
+          },
+          "before": {},
+          "by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changeSetId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entity": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "by",
+          "kind",
+          "entity",
+          "op",
+          "changeSetId"
+        ],
+        "type": "object"
+      },
       "Quiz": {
         "properties": {
           "createdAt": {
@@ -1356,7 +1441,8 @@
                     "data",
                     "decision",
                     "question",
-                    "contradiction"
+                    "contradiction",
+                    "requirement"
                   ],
                   "type": "string"
                 },
@@ -1539,7 +1625,8 @@
                     "data",
                     "decision",
                     "question",
-                    "contradiction"
+                    "contradiction",
+                    "requirement"
                   ],
                   "type": "string"
                 },
@@ -2417,6 +2504,110 @@
               }
             },
             "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/history": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "entries": {
+                      "items": {
+                        "$ref": "#/components/schemas/ProjectHistoryEntry"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "entries"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "the newest `limit` records of the project, spec changes and other writes merged, newest first"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/labels": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Labels"
+                }
+              }
+            },
+            "description": "every label of the project, newest first; `label` is null on a version confirmed before labels existed"
           },
           "404": {
             "content": {
@@ -3431,19 +3622,20 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "confirmedBy": {
+                  "label": {
+                    "maxLength": 80,
                     "minLength": 1,
                     "type": "string"
                   }
                 },
                 "required": [
-                  "confirmedBy"
+                  "label"
                 ],
                 "type": "object"
               }
             }
           },
-          "description": "who confirms",
+          "description": "the label to put on the spec as it is now; who puts it is the `X-Blueprint-By` header",
           "required": true
         },
         "responses": {
@@ -3452,18 +3644,22 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "label": {
+                      "type": "string"
+                    },
                     "version": {
                       "type": "integer"
                     }
                   },
                   "required": [
-                    "version"
+                    "version",
+                    "label"
                   ],
                   "type": "object"
                 }
               }
             },
-            "description": "confirmed and frozen"
+            "description": "labelled and frozen"
           },
           "400": {
             "content": {
@@ -3484,16 +3680,6 @@
               }
             },
             "description": "not_found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "undo_conflict · confirm_blocked · nothing_to_confirm · already_confirmed · already_added · quiz_missing · quiz_not_100 · quiz_stale · quiz_closed · quiz_full · already_marked · not_markable · nothing_to_retry"
           },
           "413": {
             "content": {

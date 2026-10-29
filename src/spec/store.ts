@@ -1,11 +1,11 @@
-import { and, asc, eq, isNull, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client";
-import { changes, changeSets, links, parts, projects } from "../db/schema";
+import { auditEvents, changes, changeSets, links, parts, projects } from "../db/schema";
 import { NotFound, UndoConflict, ValidationError } from "./errors";
 import { compareKeys, KEY_RE, nextKey } from "./keys";
 import { checkLink, LINK_KINDS, PART_KINDS, type LinkKind, type PartKind } from "./registry";
-import { Cause, Change, Origin, type HistoryEntry, type Link, type Part } from "./types";
+import { Cause, Change, Origin, type HistoryEntry, type Link, type Part, type ProjectHistoryEntry } from "./types";
 
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type Q = Db | Tx;
@@ -98,7 +98,8 @@ export async function applyChangeSet(
   db: Db,
   projectId: string,
   input: { cause: Cause; changes: Change[] },
-  opts?: { inTx?: (tx: Tx, result: { changeSetId: string; keys: Record<string, string> }) => Promise<void> },
+  // `by`: the typed name of who made the change (REQ-103); the HTTP layer always passes it, a direct caller may not.
+  opts?: { inTx?: (tx: Tx, result: { changeSetId: string; keys: Record<string, string> }) => Promise<void>; by?: string },
 ): Promise<{ changeSetId: string; keys: Record<string, string> }> {
   if (input.changes.length === 0) throw new ValidationError(null, "a change set needs at least one change");
   const cause = Cause.safeParse(input.cause);
@@ -108,7 +109,7 @@ export async function applyChangeSet(
     // One change set at a time per project: keys and undo checks read then write.
     await requireProject(tx, projectId, true);
     const [cs] = await tx.insert(changeSets)
-      .values({ projectId, causeKind: cause.data.kind, causeRef: cause.data.ref ?? null }).returning();
+      .values({ projectId, causeKind: cause.data.kind, causeRef: cause.data.ref ?? null, by: opts?.by ?? null }).returning();
     const allKeys = (await tx.select({ key: parts.key }).from(parts).where(eq(parts.projectId, projectId)))
       .map((r) => r.key!);
     const refs = new Map<string, string>();
@@ -228,7 +229,7 @@ export async function partHistory(db: Db, projectId: string, key: string): Promi
   const touches = (side: typeof changes.before | typeof changes.after) =>
     or(sql`${side}->>'fromKey' = ${key}`, sql`${side}->>'toKey' = ${key}`);
   const rows = await db.select({
-    changeSetId: changes.changeSetId, at: changeSets.at, causeKind: changeSets.causeKind, causeRef: changeSets.causeRef,
+    changeSetId: changes.changeSetId, at: changeSets.at, by: changeSets.by, causeKind: changeSets.causeKind, causeRef: changeSets.causeRef,
     entity: changes.entity, before: changes.before, after: changes.after,
   }).from(changes).innerJoin(changeSets, eq(changes.changeSetId, changeSets.id))
     .where(and(eq(changeSets.projectId, projectId), or(
@@ -239,6 +240,7 @@ export async function partHistory(db: Db, projectId: string, key: string): Promi
   return rows.map((r) => ({
     changeSetId: r.changeSetId!,
     at: r.at.toISOString(),
+    by: r.by,
     cause: { kind: r.causeKind as HistoryEntry["cause"]["kind"], ...(r.causeRef ? { ref: r.causeRef } : {}) },
     entity: r.entity,
     op: historyOp(r.entity, r.before, r.after),
@@ -247,8 +249,39 @@ export async function partHistory(db: Db, projectId: string, key: string): Promi
   }));
 }
 
-export async function undoChangeSet(db: Db, projectId: string, changeSetId: string): Promise<{ changeSetId: string }> {
-  return db.transaction((tx) => undoIn(tx, projectId, changeSetId));
+// SPEC-104 § history: the whole project, newest first — one entry per `changes` row (a spec change) merged with one per
+// `audit_events` row (every other write). Each source is read newest-first with the limit, so the top `limit` of the
+// union is inside the two reads; the merge keeps each source's own order (no tie reordering within one source).
+export async function projectHistory(db: Db, projectId: string, limit: number): Promise<ProjectHistoryEntry[]> {
+  await requireProject(db, projectId);
+  const changeRows = await db.select({
+    changeSetId: changes.changeSetId, at: changeSets.at, by: changeSets.by, causeKind: changeSets.causeKind,
+    entity: changes.entity, before: changes.before, after: changes.after,
+  }).from(changes).innerJoin(changeSets, eq(changes.changeSetId, changeSets.id))
+    .where(eq(changeSets.projectId, projectId))
+    .orderBy(desc(changeSets.at), desc(changes.seq)).limit(limit);
+  const auditRows = await db.select().from(auditEvents).where(eq(auditEvents.projectId, projectId))
+    .orderBy(desc(auditEvents.at)).limit(limit);
+
+  const fromChanges: ProjectHistoryEntry[] = changeRows.map((r) => ({
+    at: r.at.toISOString(), by: r.by, kind: r.causeKind, entity: r.entity, op: historyOp(r.entity, r.before, r.after),
+    before: r.before, after: r.after, changeSetId: r.changeSetId!,
+  }));
+  const fromAudit: ProjectHistoryEntry[] = auditRows.map((r) => ({
+    at: r.at.toISOString(), by: r.by, kind: r.action, entity: r.entity, op: r.action,
+    before: r.before, after: r.after, changeSetId: null,
+  }));
+  const out: ProjectHistoryEntry[] = [];
+  let i = 0, j = 0;
+  while (out.length < limit && (i < fromChanges.length || j < fromAudit.length)) {
+    const takeAudit = i >= fromChanges.length || (j < fromAudit.length && fromAudit[j]!.at >= fromChanges[i]!.at);
+    out.push(takeAudit ? fromAudit[j++]! : fromChanges[i++]!);
+  }
+  return out;
+}
+
+export async function undoChangeSet(db: Db, projectId: string, changeSetId: string, by?: string): Promise<{ changeSetId: string }> {
+  return db.transaction((tx) => undoIn(tx, projectId, changeSetId, by));
 }
 
 class DryRun extends Error {}
@@ -288,7 +321,7 @@ export async function readChangeSet(db: Db, projectId: string, changeSetId: stri
   };
 }
 
-async function undoIn(tx: Tx, projectId: string, changeSetId: string): Promise<{ changeSetId: string }> {
+async function undoIn(tx: Tx, projectId: string, changeSetId: string, by?: string): Promise<{ changeSetId: string }> {
   await requireProject(tx, projectId, true);
   const [original] = UUID_RE.test(changeSetId)
     ? await tx.select().from(changeSets).where(and(eq(changeSets.id, changeSetId), eq(changeSets.projectId, projectId)))
@@ -323,7 +356,7 @@ async function undoIn(tx: Tx, projectId: string, changeSetId: string): Promise<{
   if (changedSince.length) throw await conflict(changedSince);
 
   const [cs] = await tx.insert(changeSets)
-    .values({ projectId, causeKind: "undo", undoes: changeSetId }).returning();
+    .values({ projectId, causeKind: "undo", undoes: changeSetId, by: by ?? null }).returning();
   let seq = 0;
   const record = (entity: string, before: unknown, after: unknown) =>
     tx.insert(changes).values({ changeSetId: cs!.id, seq: ++seq, entity, before, after });

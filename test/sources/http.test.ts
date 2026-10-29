@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../../src/app";
 import { testDb } from "../helpers/db";
+import { BY } from "../helpers/by";
 
 const FIX = new URL("../fixtures/sources/", import.meta.url).pathname;
 const RULE = "ห้องที่จุเกิน 10 คนต้องให้ผู้ดูแลอนุมัติ";
@@ -19,13 +20,13 @@ async function api() {
   const app = createApp(await testDb());
   const json = async (res: Response) => ({ status: res.status, body: (await res.json()) as any });
   const project = async () => (await json(await app.request("/v1/projects", {
-    method: "POST", body: JSON.stringify({ name: "x" }), headers: { "content-type": "application/json" },
+    method: "POST", body: JSON.stringify({ name: "x" }), headers: { "content-type": "application/json", ...BY },
   }))).body.id as string;
   const upload = (pid: string, name: string, bytes: Uint8Array = readFileSync(join(FIX, name))) => {
     const form = new FormData();
     form.append("file", new File([new Uint8Array(bytes)], name));
     form.append("origin", JSON.stringify(origin));
-    return Promise.resolve(app.request(`/v1/projects/${pid}/sources`, { method: "POST", body: form })).then(json);
+    return Promise.resolve(app.request(`/v1/projects/${pid}/sources`, { method: "POST", body: form, headers: BY })).then(json);
   };
   const get = (path: string) => Promise.resolve(app.request(path)).then(json);
   // Every stored original, excluding nothing: the whole tree under the temp dir.
@@ -90,7 +91,7 @@ test("links over HTTP: a non-http scheme is 400 link_refused and leaves no row",
   const pid = await project();
   const r = await json(await app.request(`/v1/projects/${pid}/sources`, {
     method: "POST", body: JSON.stringify({ link: "ftp://files.example.com/a.pdf", origin }),
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...BY },
   }));
   expect([r.status, r.body.error.code]).toEqual([400, "link_refused"]);
   expect((await get(`/v1/projects/${pid}/sources`)).body).toEqual([]);
@@ -104,7 +105,7 @@ test("limits: 8 MB to sources is not 413; 21 MB is 413 too_large; 6 MB elsewhere
   const twentyOne = await upload(pid, "huge.bin", new Uint8Array(21_000_000).fill(7));
   expect([twentyOne.status, twentyOne.body.error.code]).toEqual([413, "too_large"]);
   const elsewhere = await json(await app.request("/v1/projects", {
-    method: "POST", body: JSON.stringify({ name: "x".repeat(6_000_000) }), headers: { "content-type": "application/json" },
+    method: "POST", body: JSON.stringify({ name: "x".repeat(6_000_000) }), headers: { "content-type": "application/json", ...BY },
   }));
   expect([elsewhere.status, elsewhere.body.error.code]).toEqual([413, "too_large"]);
 });
@@ -121,7 +122,7 @@ test("the list shows every source without its text; a source's own origin cannot
   const form = new FormData();
   form.append("file", new File([readFileSync(join(FIX, "tiny.png"))], "tiny.png"));
   form.append("origin", JSON.stringify({ ...origin, sourceId: "3f2b8c1e-9a4d-4c2e-8b1f-6d7e5a4c3b2a" }));
-  const bad = await json(await app.request(`/v1/projects/${pid}/sources`, { method: "POST", body: form }));
+  const bad = await json(await app.request(`/v1/projects/${pid}/sources`, { method: "POST", body: form, headers: BY }));
   expect([bad.status, bad.body.error.code]).toEqual([400, "validation"]);
   expect((await get(`/v1/projects/00000000-0000-0000-0000-000000000099/sources`)).status).toBe(404);
 });

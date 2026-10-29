@@ -3,6 +3,7 @@ import { createApp } from "../../src/app";
 import type { PartKind } from "../../src/spec/registry";
 import type { Change } from "../../src/spec/types";
 import { testDb } from "../helpers/db";
+import { BY } from "../helpers/by";
 
 // AC-14: an invented project (no client data) of 52 parts and 168 links, every link allowed by the registry.
 const origin = { stamp: "operator", date: "2026-10-08" } as const;
@@ -47,7 +48,7 @@ test("AC-14: 'what is stuck' answers in under a second for 52 parts and 168 link
   const app = createApp(await testDb());
   const json = async (res: Response) => (await res.json()) as any;
   const post = (path: string, body: unknown) =>
-    app.request(path, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+    app.request(path, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json", ...BY } });
 
   const { id } = await json(await post("/v1/projects", { name: "โปรเจกต์ทดสอบขนาด" }));
   const stored = await post(`/v1/projects/${id}/change-sets`, { cause: { kind: "operator" }, changes: inventedProject() });

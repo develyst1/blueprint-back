@@ -16,6 +16,7 @@ import { computeStuck } from "../../src/spec/stuck";
 import type { Change } from "../../src/spec/types";
 import { meetingRoom, meetingRoomCause } from "../fixtures/meeting-room";
 import { testDb } from "../helpers/db";
+import { BY } from "../helpers/by";
 
 const SRC = new URL("../fixtures/sources/", import.meta.url).pathname;
 const BASE = "https://gateway.example.com";
@@ -136,10 +137,10 @@ test("R6: a forced 500 logs the error's name and code only — no params, no tex
   const g = fake([]);
   const app = createApp(db, { gateway: g.gateway });
   const pid = (await (await app.request("/v1/projects", { method: "POST", body: JSON.stringify({ name: "x" }),
-    headers: { "content-type": "application/json" } })).json() as any).id;
+    headers: { "content-type": "application/json", ...BY } })).json() as any).id;
   await db.update(projects).set({ model: "not-a-model-id" }).where(eq(projects.id, pid)); // the client throws on it
   const res = await app.request(`/v1/projects/${pid}/rounds`, { method: "POST",
-    body: JSON.stringify({ message: "ข้อความลับของผู้ใช้" }), headers: { "content-type": "application/json" } });
+    body: JSON.stringify({ message: "ข้อความลับของผู้ใช้" }), headers: { "content-type": "application/json", ...BY } });
   expect(res.status).toBe(500);
   expect(logged.length).toBeGreaterThan(0);
   for (const line of logged) {

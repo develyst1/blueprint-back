@@ -14,6 +14,7 @@ const validBodies: Record<PartKind, unknown> = {
   decision: { rule: "ห้องที่จุเกิน 10 คนต้องให้ผู้ดูแลอนุมัติ", cases: ["ห้องใหญ่ → อนุมัติ"], open: "ห้องพอดี 10 คน" },
   question: { text: "ผู้ดูแลไม่ตอบใน 24 ชม. ทำอย่างไร", proposedAnswer: "ยกเลิกอัตโนมัติ" },
   contradiction: { note: "เอกสารบอกว่าไม่ต้องอนุมัติ แต่ DEC-001 บอกว่าต้อง", quote: "จองได้ทันที" },
+  requirement: { text: "ผู้ดูแลต้องอนุมัติห้องที่จุเกิน 10 คน" },
 };
 
 for (const kind of Object.keys(PART_KINDS) as PartKind[]) {
@@ -46,8 +47,11 @@ test("link rules: labels, positions and ends come from the registry", () => {
   expect(checkLink({ kind: "from", fromKind: "step", toKind: "role" })).not.toBeNull();
   expect(checkLink({ kind: "from", fromKind: "interaction", toKind: "data" })).not.toBeNull();
   for (const toKind of Object.keys(PART_KINDS) as PartKind[]) {
-    expect(checkLink({ kind: "covers", fromKind: "decision", toKind })).toBeNull();
+    // REQ-103 D7: a requirement stands alone — no link may touch it, even where a rule says "any".
+    if (toKind === "requirement") expect(checkLink({ kind: "covers", fromKind: "decision", toKind })).toContain("stands alone");
+    else expect(checkLink({ kind: "covers", fromKind: "decision", toKind })).toBeNull();
   }
+  expect(checkLink({ kind: "about", fromKind: "requirement", toKind: "step" })).toContain("stands alone");
   expect(checkLink({ kind: "depends_on", fromKind: "step", toKind: "step" })).not.toBeNull();
 });
 

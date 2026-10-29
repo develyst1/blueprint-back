@@ -252,7 +252,7 @@ async function retryTarget(db: Db, projectId: string) {
 }
 
 export async function runRound(db: Db, gateway: Gateway, projectId: string,
-  input: RoundInput, opts: { today: string }): Promise<Round> {
+  input: RoundInput, opts: { today: string; by?: string }): Promise<Round> {
   const project = await requireProject(db, projectId);
   const retry = input.retry === true;
   if (retry && [input.message, input.accept, input.answers, input.park].some((v) => v !== undefined)) {
@@ -323,7 +323,7 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
   const [userRow] = retried ? [retried] : await db.insert(messages).values({
     // The user's own words: the message, then each answer (TASK-A-036). Accept-only and park-only rounds stay "".
     projectId, role: "user", content: [input.message ?? "", ...answers.map((a) => a.text)].filter((t) => t !== "").join("\n"),
-    model: project.model, creativity: project.creativity,
+    model: project.model, creativity: project.creativity, by: opts.by ?? null,
     createdAt: await nextMessageTime(db, projectId),
   }).returning();
   // Everything before this turn (for a retry, the failed bot rows after its user row are not history).
@@ -370,6 +370,7 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
       let botRowId = "";
       // The bot row goes in the change set's own transaction: a set never lands without its reply (rule 8).
       const { changeSetId, keys } = await applyChangeSet(db, projectId, { cause: { kind: "message", ref: userRow!.id }, changes: built.changes }, {
+        by: opts.by, // REQ-103: the change set carries the name of the person who sent the round
         inTx: async (tx, r) => {
           const [botRow] = await tx.insert(messages).values({
             projectId, role: "bot", content: bot.reply ?? "", model: botModel, creativity: project.creativity,

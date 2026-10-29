@@ -2,9 +2,11 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Db } from "./db/client";
 import { createGateway, type Gateway } from "./gateway/client";
 import { bodyLimit } from "hono/body-limit";
+import { actor } from "./http/actor";
 import { MAX_BODY_BYTES, MAX_UPLOAD_BYTES, notFound, onError, tooLarge, validationHook } from "./http/errors";
 import { changeSetRoutes } from "./http/routes/change-sets";
 import { diagramRoutes } from "./http/routes/diagrams";
+import { historyRoutes } from "./http/routes/history";
 import { modelRoutes } from "./http/routes/models";
 import { partRoutes } from "./http/routes/parts";
 import { projectRoutes } from "./http/routes/projects";
@@ -27,10 +29,13 @@ export function createApp(db: Db, deps: { gateway?: Gateway } = {}): OpenAPIHono
   const upload = bodyLimit({ maxSize: MAX_UPLOAD_BYTES, onError: tooLarge });
   app.use("/v1/*", (c, next) =>
     (c.req.method === "POST" && /^\/v1\/projects\/[^/]+\/sources$/.test(c.req.path) ? upload : usual)(c, next));
+  // REQ-103 / SPEC-104 D4: every write names who made it; a write with no name is refused before it runs.
+  app.use("/v1/*", actor);
 
   projectRoutes(app, db, gateway);
   changeSetRoutes(app, db);
   partRoutes(app, db);
+  historyRoutes(app, db);
   stuckRoutes(app, db);
   diagramRoutes(app, db);
   versionRoutes(app, db);

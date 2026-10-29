@@ -2,6 +2,7 @@
 // what the answering step produces, takes the marks, and says whether the latest quiz passes.
 import { and, count, desc, eq, inArray, isNull, like, max } from "drizzle-orm";
 import { z } from "zod";
+import { recordAudit } from "../audit/events";
 import type { Db } from "../db/client";
 import type { Gateway } from "../gateway/client";
 import { changes, changeSets, projects, quizItems, quizzes } from "../db/schema";
@@ -113,13 +114,14 @@ export async function latestQuiz(db: Db, projectId: string): Promise<Quiz> {
   return quiz;
 }
 
-export async function startQuiz(db: Db, projectId: string): Promise<Quiz> {
+export async function startQuiz(db: Db, projectId: string, by?: string): Promise<Quiz> {
   const row = await db.transaction(async (tx) => {
     await lockProject(tx, projectId);
     // Strictly after the newest quiz: two quizzes started in one millisecond must still have a clear "latest".
     const previous = await latestRow(tx, projectId);
     const createdAt = new Date(Math.max(Date.now(), (previous?.createdAt.getTime() ?? 0) + 1));
     const [quiz] = await tx.insert(quizzes).values({ projectId, baseChangeSets: await changeSetCount(tx, projectId), createdAt }).returning();
+    if (by) await recordAudit(tx, { projectId, by, action: "quiz_start", entity: `quiz:${quiz!.id}`, after: { quizId: quiz!.id } });
     return quiz!;
   });
   return toQuiz(db, row);
@@ -129,7 +131,7 @@ const QuestionText = z.string().transform((s) => s.trim())
   .pipe(z.string().min(1).max(MAX_QUESTION_CHARS).refine((s) => !s.includes("\u0000"), "contains a NUL character"));
 
 // Stores one item as the answering step produced it (rule 3: ≤ 10 answered; failed ones do not count).
-export async function addItem(db: Db, projectId: string, quizId: string, item: NewItem): Promise<QuizItem> {
+export async function addItem(db: Db, projectId: string, quizId: string, item: NewItem, by?: string): Promise<QuizItem> {
   const question = QuestionText.safeParse(item.question);
   if (!question.success) throw new ValidationError(null, `question: 1–${MAX_QUESTION_CHARS} characters, no NUL`);
   const id = await db.transaction(async (tx) => {
@@ -147,6 +149,10 @@ export async function addItem(db: Db, projectId: string, quizId: string, item: N
       quizId, position: (last ?? 0) + 1, question: question.data, status: item.status, answer: item.answer,
       notInSpec: item.notInSpec, parts: item.parts, model: item.model,
     }).returning();
+    if (by) {
+      await recordAudit(tx, { projectId, by, action: "quiz_ask", entity: `quiz:${quizId}`,
+        after: { itemId: row!.id, position: row!.position, question: row!.question, status: row!.status, answer: row!.answer, notInSpec: row!.notInSpec, parts: row!.parts } });
+    }
     return row!.id;
   });
   return itemOf(db, projectId, quizId, id);
@@ -166,7 +172,7 @@ const MarkInput = z.object({
 
 // Rule 5 (a mark is final; failed items are not markable) and rule 6 (wrong → an open question, as one change set).
 export async function markItem(db: Db, projectId: string, quizId: string, itemId: string,
-  input: { mark: "right" | "wrong"; note?: string }, opts: { today: string }): Promise<QuizItem> {
+  input: { mark: "right" | "wrong"; note?: string }, opts: { today: string; by?: string }): Promise<QuizItem> {
   const parsed = MarkInput.safeParse(input);
   if (!parsed.success) throw new ValidationError(null, `mark: right or wrong; note at most ${MAX_NOTE_CHARS} characters`);
   const { mark, note } = parsed.data;
@@ -184,13 +190,14 @@ export async function markItem(db: Db, projectId: string, quizId: string, itemId
     const [now] = await tx.select({ mark: quizItems.mark }).from(quizItems).where(eq(quizItems.id, itemId));
     if (now?.mark !== null) throw new AlreadyMarked();
     await tx.update(quizItems).set({ mark, note: note ?? null, changeSetId }).where(eq(quizItems.id, itemId));
+    if (opts.by) await recordAudit(tx, { projectId, by: opts.by, action: "quiz_mark", entity: `quiz:${quizId}`, after: { itemId, mark, note: note ?? null, changeSetId } });
   };
 
   if (mark === "right") {
     await db.transaction(async (tx) => { await lockProject(tx, projectId); await setMark(tx, null); });
   } else {
     await applyChangeSet(db, projectId, { cause: { kind: "operator", ref: `quiz:${quizId}:${itemId}` }, changes: wrongToQuestion(item, await liveKeys(db, projectId), opts.today, note) },
-      { inTx: async (tx, r) => setMark(tx, r.changeSetId) });
+      { inTx: async (tx, r) => setMark(tx, r.changeSetId), by: opts.by });
   }
   return itemOf(db, projectId, quizId, itemId);
 }
@@ -220,7 +227,7 @@ export function freeze(quiz: Quiz) {
 
 // The ask path (TASK-A-025): checked before the gateway is called — a closed, stale or full quiz spends no call —
 // then answered from the spec and stored (addItem checks again under the lock).
-export async function askQuestion(db: Db, gateway: Gateway, projectId: string, quizId: string, question: string): Promise<QuizItem> {
+export async function askQuestion(db: Db, gateway: Gateway, projectId: string, quizId: string, question: string, by?: string): Promise<QuizItem> {
   const text = QuestionText.safeParse(question);
   if (!text.success) throw new ValidationError(null, `question: 1–${MAX_QUESTION_CHARS} characters, no NUL`);
   await requireProject(db, projectId);
@@ -231,5 +238,5 @@ export async function askQuestion(db: Db, gateway: Gateway, projectId: string, q
     .where(and(eq(quizItems.quizId, quizId), eq(quizItems.status, "answered")));
   if (n >= MAX_ANSWERED) throw new QuizFull();
   const answered = await answerQuestion(db, gateway, projectId, text.data);
-  return addItem(db, projectId, quizId, { question: text.data, ...answered });
+  return addItem(db, projectId, quizId, { question: text.data, ...answered }, by);
 }

@@ -105,6 +105,8 @@ export type StuckItem = z.infer<typeof StuckItem>;
 export const HistoryEntry = z.object({
   changeSetId: z.string(),
   at: z.string(),
+  // REQ-103: the typed name of who made the change; null only on rows from before it.
+  by: z.string().nullable(),
   // `undo` appears only on change sets written by the undo route.
   cause: z.object({ kind: z.enum(["operator", "message", "source", "undo"]), ref: z.string().optional() }),
   entity: z.string(),
@@ -113,3 +115,16 @@ export const HistoryEntry = z.object({
   after: z.unknown(),
 });
 export type HistoryEntry = z.infer<typeof HistoryEntry>;
+
+// REQ-103: one line of the project-wide history — a spec change (`kind` = its cause) or any other write (`kind` = the action).
+export const ProjectHistoryEntry = z.object({
+  at: z.string(),
+  by: z.string().nullable(),
+  kind: z.string(),
+  entity: z.string(),
+  op: z.string(),
+  before: z.unknown(),
+  after: z.unknown(),
+  changeSetId: z.string().nullable(),
+});
+export type ProjectHistoryEntry = z.infer<typeof ProjectHistoryEntry>;

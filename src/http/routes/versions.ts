@@ -1,7 +1,8 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Db } from "../../db/client";
-import { confirmVersion, getVersion } from "../../projects/service";
+import { confirmVersion, getVersion, listLabels, MAX_LABEL_CHARS } from "../../projects/service";
 import { versionFeed } from "../../seam/feed";
+import { byOf } from "../actor";
 import { errors } from "../errors";
 import { LinkSchema, PartSchema, ProjectParams } from "./projects";
 
@@ -12,23 +13,44 @@ export function versionRoutes(app: OpenAPIHono, db: Db) {
     request: {
       params: ProjectParams,
       body: {
-        description: "who confirms",
+        description: "the label to put on the spec as it is now; who puts it is the `X-Blueprint-By` header",
         required: true,
-        // Non-empty after trim (TASK-A-006 Q1.3).
-        content: { "application/json": { schema: z.object({ confirmedBy: z.string().trim().min(1) }) } },
+        // REQ-103 / SPEC-104 D2: no gate. Typed text, trimmed, 1–80 characters — an empty one is a 400 and saves nothing.
+        content: { "application/json": { schema: z.object({ label: z.string().trim().min(1).max(MAX_LABEL_CHARS) }) } },
       },
     },
     responses: {
-      201: { description: "confirmed and frozen", content: { "application/json": { schema: z.object({ version: z.number().int() }) } } },
+      201: { description: "labelled and frozen", content: { "application/json": { schema: z.object({ version: z.number().int(), label: z.string() }) } } },
       400: errors[400],
       404: errors[404],
-      409: errors[409],
       413: errors[413],
     },
   }), async (c) => {
     const { projectId } = c.req.valid("param");
-    return c.json(await confirmVersion(db, projectId, c.req.valid("json").confirmedBy), 201);
+    const { label } = c.req.valid("json");
+    const { version } = await confirmVersion(db, projectId, byOf(c), label);
+    return c.json({ version, label }, 201);
   });
+
+  // SPEC-104 § labels: the list a person sees. The seam routes below are not changed by it (no `label` field on them).
+  app.openapi(createRoute({
+    method: "get",
+    path: "/v1/projects/{projectId}/labels",
+    request: { params: ProjectParams },
+    responses: {
+      200: {
+        description: "every label of the project, newest first; `label` is null on a version confirmed before labels existed",
+        content: {
+          "application/json": {
+            schema: z.object({
+              labels: z.array(z.object({ version: z.number().int(), label: z.string().nullable(), labelledAt: z.string(), by: z.string() })),
+            }).openapi("Labels"),
+          },
+        },
+      },
+      404: errors[404],
+    },
+  }), async (c) => c.json(await listLabels(db, c.req.valid("param").projectId), 200));
 
   app.openapi(createRoute({
     method: "get",

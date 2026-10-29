@@ -59,6 +59,8 @@ export const changeSets = pgTable("change_sets", {
   causeKind: text("cause_kind").notNull(),
   causeRef: text("cause_ref"),
   undoes: uuid("undoes").references((): any => changeSets.id),
+  // REQ-103: who made the change (the typed name); null only on rows from before it.
+  by: text("by"),
 });
 
 export const changes = pgTable("changes", {
@@ -79,7 +81,10 @@ export const versions = pgTable("versions", {
   confirmedBy: text("confirmed_by").notNull(),
   snapshot: jsonb("snapshot").notNull(),
   summary: jsonb("summary").notNull(),
-  lastChangeSet: uuid("last_change_set").notNull().references(() => changeSets.id),
+  // REQ-103: null for a label put on a project that has no change set yet.
+  lastChangeSet: uuid("last_change_set").references(() => changeSets.id),
+  // REQ-103: the hand label typed at the confirm; null on versions confirmed before it.
+  label: text("label"),
   // REQ-005: the quiz that passed the confirm gate, frozen with the version (null for versions confirmed before it).
   quiz: jsonb("quiz"),
 }, (t) => [primaryKey({ columns: [t.projectId, t.version] })]);
@@ -113,6 +118,8 @@ export const messages = pgTable("messages", {
   roundStatus: text("round_status"),
   changeSetId: uuid("change_set_id").references(() => changeSets.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // REQ-103: who sent a `user` row; null on bot/caw rows and on rows from before it.
+  by: text("by"),
 });
 
 // REQ-005: the understanding quiz. `base_change_sets` = the project's change sets (none of them this quiz's) at start.
@@ -138,3 +145,16 @@ export const quizItems = pgTable("quiz_items", {
   model: text("model").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [unique("quiz_items_quiz_position_unique").on(t.quizId, t.position)]);
+
+// REQ-103: one row per write that is not a spec change (those are `change_sets`/`changes`). Written in the same
+// transaction as the change it records, so history never shows a change that did not happen, or misses one that did.
+export const auditEvents = pgTable("audit_events", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: uuid("project_id").notNull().references(() => projects.id),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  by: text("by").notNull(),
+  action: text("action").notNull(),
+  entity: text("entity").notNull(),
+  before: jsonb("before"),
+  after: jsonb("after"),
+}, (t) => [index("audit_events_project_at_idx").on(t.projectId, t.at)]);

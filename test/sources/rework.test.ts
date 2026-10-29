@@ -9,6 +9,7 @@ import { extract } from "../../src/sources/extract";
 import { fetchLink, isPrivateAddress, type LinkDeps } from "../../src/sources/link";
 import { AlreadyAdded, addFile, addLink, getSource } from "../../src/sources/service";
 import { testDb } from "../helpers/db";
+import { BY } from "../helpers/by";
 
 const origin = { stamp: "operator", date: "2026-10-09" };
 const PUBLIC = "93.184.215.14";
@@ -115,14 +116,14 @@ test("Q5: a broken multipart body is 400 validation without a JSON hint", async 
   process.env.SOURCES_DIR = tempDir();
   const app = createApp(await testDb());
   const pid = (await (await app.request("/v1/projects", {
-    method: "POST", body: JSON.stringify({ name: "x" }), headers: { "content-type": "application/json" },
+    method: "POST", body: JSON.stringify({ name: "x" }), headers: { "content-type": "application/json", ...BY },
   })).json() as any).id;
   const res = await app.request(`/v1/projects/${pid}/sources`, {
-    method: "POST", body: "this is not multipart", headers: { "content-type": "multipart/form-data; boundary=zzz" },
+    method: "POST", body: "this is not multipart", headers: { "content-type": "multipart/form-data; boundary=zzz", ...BY },
   });
   const body = await res.json() as any;
   expect([res.status, body.error.code]).toEqual([400, "validation"]);
   expect(body.error.message).not.toContain("application/json");
-  const bad = await app.request("/v1/projects", { method: "POST", body: "{nope", headers: { "content-type": "application/json" } });
+  const bad = await app.request("/v1/projects", { method: "POST", body: "{nope", headers: { "content-type": "application/json", ...BY } });
   expect(((await bad.json()) as any).error.message).toContain("application/json");
 });

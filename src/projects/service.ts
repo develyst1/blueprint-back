@@ -2,11 +2,10 @@ import { and, desc, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { GatewayUnavailable, TIERS, type Gateway, type Tier } from "../gateway/client";
 import { changeSets, organisations, projects, versions } from "../db/schema";
+import { recordAudit } from "../audit/events";
 import { freeze, latestQuizOrNull } from "../quiz/store";
 import { notifyConfirmed } from "../seam/notify";
-import {
-  AlreadyConfirmed, ConfirmBlocked, NotFound, NothingToConfirm, QuizMissing, QuizNot100, QuizStale, ValidationError,
-} from "../spec/errors";
+import { NotFound, ValidationError } from "../spec/errors";
 import { loadSpec, type Tx } from "../spec/store";
 import { computeStuck } from "../spec/stuck";
 import type { Link, Part } from "../spec/types";
@@ -34,6 +33,7 @@ async function projectRow(db: Db, projectId: string) {
 export async function createProject(
   db: Db,
   input: { name: string; organisationId?: string; theme?: string },
+  by?: string, // REQ-103: who created it (an `audit_events` row in the same transaction); the HTTP layer always passes it
 ): Promise<Project> {
   const name = input.name.trim();
   if (name.length === 0) throw new ValidationError(null, "a project needs a name");
@@ -46,14 +46,18 @@ export async function createProject(
       && (await db.select({ id: organisations.id }).from(organisations).where(eq(organisations.id, input.organisationId))).length > 0;
     if (!found) throw new NotFound("organisation");
   }
-  const [row] = await db.insert(projects)
-    .values({
-      name,
-      ...(input.organisationId !== undefined ? { organisationId: input.organisationId } : {}),
-      ...(input.theme !== undefined ? { theme: input.theme } : {}),
-    })
-    .returning();
-  return toProject(row!);
+  const row = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(projects)
+      .values({
+        name,
+        ...(input.organisationId !== undefined ? { organisationId: input.organisationId } : {}),
+        ...(input.theme !== undefined ? { theme: input.theme } : {}),
+      })
+      .returning();
+    if (by) await recordAudit(tx, { projectId: created!.id, by, action: "project_create", entity: "project", after: { name: created!.name, theme: created!.theme } });
+    return created!;
+  });
+  return toProject(row);
 }
 
 export async function listProjects(db: Db): Promise<(Project & { stuckCount: number; partCount: number })[]> {
@@ -86,7 +90,16 @@ export async function newestChangeSet(q: Db | Tx, projectId: string): Promise<st
   return newest?.id ?? null;
 }
 
-export async function confirmVersion(db: Db, projectId: string, confirmedBy: string): Promise<{ version: number }> {
+// SPEC-104 D1/D2 (REQ-103): putting a label is still one frozen `versions` row — that keeps the seam unchanged — but it
+// has no gate: an empty spec, nothing changed since the last label, stuck items and an unfinished quiz are the front's
+// warning now, not a refusal here. `confirmedBy` is the typed name. `label` is required on the HTTP route; a direct
+// caller (a test building a version) may leave it out, which makes a row like one confirmed before labels existed.
+export const MAX_LABEL_CHARS = 80;
+export async function confirmVersion(db: Db, projectId: string, confirmedBy: string, label?: string): Promise<{ version: number }> {
+  const text = label === undefined ? null : label.trim();
+  if (text !== null && (text.length < 1 || text.length > MAX_LABEL_CHARS || text.includes("\u0000"))) {
+    throw new ValidationError(null, `label: 1–${MAX_LABEL_CHARS} characters, not only spaces`);
+  }
   const confirmed = await db.transaction(async (tx) => {
     if (!UUID_RE.test(projectId)) throw new NotFound("project");
     // Same lock as change sets: the snapshot cannot move under us, and version numbers do not collide.
@@ -94,32 +107,32 @@ export async function confirmVersion(db: Db, projectId: string, confirmedBy: str
     if (locked.length === 0) throw new NotFound("project");
 
     const spec = await loadSpec(tx, projectId);
-    if (spec.parts.length === 0) throw new NothingToConfirm();
-    // D-030: nothing changed since the newest version (same shared "newest change set" as the feed) → refused here,
-    // before the stuck and quiz checks; nothing is written.
-    const newest = await newestChangeSet(tx, projectId);
-    const [latest] = await tx.select({ version: versions.version, lastChangeSet: versions.lastChangeSet }).from(versions)
+    const newest = await newestChangeSet(tx, projectId); // null when the project has no change set yet
+    const [latest] = await tx.select({ version: versions.version }).from(versions)
       .where(eq(versions.projectId, projectId)).orderBy(desc(versions.version)).limit(1);
-    if (latest && latest.lastChangeSet === newest) throw new AlreadyConfirmed(latest.version!);
-    const stuck = computeStuck(spec);
-    if (stuck.length > 0) throw new ConfirmBlocked(stuck);
-    // REQ-005 rule 8, in this order: a quiz exists · ≥ 5 marked, all right · no spec change since it started.
-    const quiz = await latestQuizOrNull(tx, projectId);
-    if (!quiz) throw new QuizMissing();
-    if (quiz.marked < 5 || quiz.right < quiz.marked) throw new QuizNot100(quiz.right, quiz.marked);
-    if (quiz.stale) throw new QuizStale();
+    const quiz = await latestQuizOrNull(tx, projectId); // frozen with the version when there is one, whatever its score
 
     const version = (latest?.version ?? 0) + 1;
     const [row] = await tx.insert(versions).values({
-      projectId, version, confirmedBy,
-      snapshot: spec, summary: summarise(spec.parts, spec.links), lastChangeSet: newest!,
-      quiz: freeze(quiz), // rule 9: the quiz that passed, frozen in the same INSERT
+      projectId, version, confirmedBy, label: text,
+      snapshot: spec, summary: summarise(spec.parts, spec.links), lastChangeSet: newest,
+      quiz: quiz ? freeze(quiz) : null,
     }).returning({ confirmedAt: versions.confirmedAt });
+    await recordAudit(tx, { projectId, by: confirmedBy, action: "label", entity: `label:${version}`, after: { version, label: text } });
     return { version, confirmedAt: row!.confirmedAt.toISOString() };
   });
   // SPEC-A-005 § S2.5: after the commit, never inside it; failure is logged, never raised.
   await notifyConfirmed({ projectId, ...confirmed });
   return { version: confirmed.version };
+}
+
+// SPEC-104 § labels: every label, newest first. A label is a `versions` row, so this reads the same table the seam does —
+// but only the columns a label list needs, never the snapshot.
+export async function listLabels(db: Db, projectId: string): Promise<{ labels: { version: number; label: string | null; labelledAt: string; by: string }[] }> {
+  await projectRow(db, projectId);
+  const rows = await db.select({ version: versions.version, label: versions.label, confirmedAt: versions.confirmedAt, confirmedBy: versions.confirmedBy })
+    .from(versions).where(eq(versions.projectId, projectId)).orderBy(desc(versions.version));
+  return { labels: rows.map((r) => ({ version: r.version!, label: r.label, labelledAt: r.confirmedAt.toISOString(), by: r.confirmedBy })) };
 }
 
 export async function getVersion(db: Db, projectId: string, version: number): Promise<{
@@ -143,8 +156,8 @@ export async function getVersion(db: Db, projectId: string, version: number): Pr
 // Change the project's model and/or creativity (REQ-003 R3). Touches only the project row — never the spec (AC-9).
 // A tier is checked here; a "<provider>/<model>" must be in the gateway's live list (down → GatewayUnavailable).
 export async function updateProject(db: Db, projectId: string, patch: { model?: string; creativity?: number },
-  gateway: Gateway): Promise<Project> {
-  await projectRow(db, projectId);
+  gateway: Gateway, by?: string): Promise<Project> {
+  const current = await projectRow(db, projectId);
   if (patch.model === undefined && patch.creativity === undefined) throw new ValidationError(null, "give a model or a creativity");
   if (patch.creativity !== undefined && !(patch.creativity >= 0 && patch.creativity <= 2)) {
     throw new ValidationError(null, "creativity is a number from 0 to 2");
@@ -160,9 +173,16 @@ export async function updateProject(db: Db, projectId: string, patch: { model?: 
       if (!known) throw new ValidationError(null, `"${patch.model}" is not a model the gateway offers`);
     }
   }
-  const [row] = await db.update(projects).set({
-    ...(patch.model !== undefined ? { model: patch.model } : {}),
-    ...(patch.creativity !== undefined ? { creativity: patch.creativity } : {}),
-  }).where(eq(projects.id, projectId)).returning();
-  return toProject(row!);
+  const row = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(projects).set({
+      ...(patch.model !== undefined ? { model: patch.model } : {}),
+      ...(patch.creativity !== undefined ? { creativity: patch.creativity } : {}),
+    }).where(eq(projects.id, projectId)).returning();
+    if (by) {
+      await recordAudit(tx, { projectId, by, action: "settings", entity: "project",
+        before: { model: current.model, creativity: current.creativity }, after: { model: updated!.model, creativity: updated!.creativity } });
+    }
+    return updated!;
+  });
+  return toProject(row);
 }

@@ -5,6 +5,7 @@ import { messages } from "../../src/db/schema";
 import { createGateway, type GatewayFetch } from "../../src/gateway/client";
 import { meetingRoom } from "../fixtures/meeting-room";
 import { testDb } from "../helpers/db";
+import { BY } from "../helpers/by";
 
 const BASE = "https://gateway.example.com";
 const answer = { reply: "รับทราบครับ", changes: [], questions: [], contradictions: [] };
@@ -21,7 +22,8 @@ async function api() {
   const app = createApp(db, { gateway: createGateway({ baseUrl: BASE, fetch }) });
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await app.request(path, {
-      method, ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
+      method, headers: { ...BY, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     return { status: res.status, body: (await res.json()) as any };
   };

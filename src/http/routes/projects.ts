@@ -3,6 +3,7 @@ import type { Db } from "../../db/client";
 import type { Gateway } from "../../gateway/client";
 import { createProject, getProject, listProjects, updateProject } from "../../projects/service";
 import { Link, Part } from "../../spec/types";
+import { byOf } from "../actor";
 import { errors } from "../errors";
 
 export const ProjectParams = z.object({ projectId: z.string() });
@@ -38,7 +39,7 @@ export function projectRoutes(app: OpenAPIHono, db: Db, gateway: Gateway) {
       },
     },
     responses: { 201: json(ProjectSchema, "created"), 400: errors[400], 404: errors[404], 413: errors[413] },
-  }), async (c) => c.json(await createProject(db, c.req.valid("json")), 201));
+  }), async (c) => c.json(await createProject(db, c.req.valid("json"), byOf(c)), 201));
 
   app.openapi(createRoute({
     method: "get",
@@ -73,5 +74,5 @@ export function projectRoutes(app: OpenAPIHono, db: Db, gateway: Gateway) {
       200: json(ProjectSchema, "the project as it is now"),
       400: errors[400], 404: errors[404], 503: errors[503],
     },
-  }), async (c) => c.json(await updateProject(db, c.req.valid("param").projectId, c.req.valid("json"), gateway), 200));
+  }), async (c) => c.json(await updateProject(db, c.req.valid("param").projectId, c.req.valid("json"), gateway, byOf(c)), 200));
 }
