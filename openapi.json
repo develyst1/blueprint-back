@@ -1320,6 +1320,27 @@
             },
             "type": "array"
           },
+          "relatedDecisions": {
+            "items": {
+              "properties": {
+                "decision": {
+                  "$ref": "#/components/schemas/Part"
+                },
+                "via": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "via",
+                "decision"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "relatedDecisionsMore": {
+            "type": "boolean"
+          },
           "version": {
             "type": "integer"
           }
@@ -1332,7 +1353,9 @@
           "neighbours",
           "decisions",
           "flows",
-          "questions"
+          "questions",
+          "relatedDecisions",
+          "relatedDecisionsMore"
         ],
         "type": "object"
       },
@@ -2226,6 +2249,27 @@
             },
             "type": "array"
           },
+          "relatedDecisions": {
+            "items": {
+              "properties": {
+                "decision": {
+                  "$ref": "#/components/schemas/Part"
+                },
+                "via": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "via",
+                "decision"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "relatedDecisionsMore": {
+            "type": "boolean"
+          },
           "revision": {
             "type": "integer"
           },
@@ -2243,6 +2287,8 @@
           "decisions",
           "flows",
           "questions",
+          "relatedDecisions",
+          "relatedDecisionsMore",
           "revision",
           "savedAt",
           "latestLabel"

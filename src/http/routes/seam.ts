@@ -29,6 +29,8 @@ const PartContextSchema = z.object({
     at: z.array(z.string()),
   })),
   questions: z.array(PartSchema),
+  relatedDecisions: z.array(z.object({ via: z.string(), decision: PartSchema })),
+  relatedDecisionsMore: z.boolean(),
 }).openapi("PartContext");
 
 const LocatedSchema = z.object({

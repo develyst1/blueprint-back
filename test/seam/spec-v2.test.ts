@@ -141,7 +141,7 @@ test("GET /spec/parts/{key}/context: v1's body with revision, savedAt, latestLab
   const { db, pid, call } = await project(true);
   const r = await call("GET", `/v1/projects/${pid}/spec/parts/STEP-004/context`, undefined, false);
   expect(r.status).toBe(200);
-  expect(Object.keys(r.body).sort()).toEqual(["decisions", "flows", "latestLabel", "neighbours", "part", "projectId", "questions", "revision", "savedAt"]);
+  expect(Object.keys(r.body).sort()).toEqual(["decisions", "flows", "latestLabel", "neighbours", "part", "projectId", "questions", "relatedDecisions", "relatedDecisionsMore", "revision", "savedAt"]);
   expect(r.body.part.key).toBe("STEP-004");
   expect(r.body.revision).toBe(await revisionOf(db, pid));
   expect(r.body.neighbours.length).toBeGreaterThan(0);

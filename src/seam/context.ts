@@ -14,7 +14,11 @@ export type Flow = { work: { key: string; title: string }; steps: { key: string;
 export type PartContext = {
   projectId: string; version: number; confirmedAt: string; part: Part;
   neighbours: Neighbour[]; decisions: Part[]; flows: Flow[]; questions: Part[];
+  relatedDecisions: RelatedDecision[]; relatedDecisionsMore: boolean;
 };
+// SPEC-106 § REQ-112: a decision that covers a step the part sits in, or a work of its flows, and is not one of `decisions`.
+export type RelatedDecision = { via: string; decision: Part };
+export const MAX_RELATED_DECISIONS = 50;
 
 export async function partContext(db: Db, projectId: string, version: number, key: string): Promise<PartContext> {
   const v = await getVersion(db, projectId, version); // 404 for an unknown project or a version never confirmed
@@ -75,5 +79,16 @@ export function contextIn(spec: { parts: Part[]; links: Link[] }, key: string): 
     return { work: { key: w, title: byKey.get(w)!.title }, steps, at: steps.filter((s) => here.has(s.key)).map((s) => s.key) };
   });
 
-  return { part, neighbours, decisions, flows, questions };
+  // Decisions that cover what the part's flows touch (`at` steps, the works, and — E17 — every step of a work the climb named
+  // directly, whose `at` is empty), minus the part's own `decisions` and the part itself; once per decision, `via` = the lowest
+  // key it covers among those; by decision key, capped.
+  const own = new Set([key, ...decisions.map((d) => d.key)]);
+  const namedSteps = flows.filter((f) => named.includes(f.work.key)).flatMap((f) => f.steps.map((s) => s.key));
+  const touched = [...new Set([...flows.flatMap((f) => [f.work.key, ...f.at]), ...namedSteps])].sort(compareKeys);
+  const via = new Map<string, string>();
+  for (const t of touched) for (const d of to("covers", t)) if (!own.has(d) && byKey.get(d)?.kind === "decision" && !via.has(d)) via.set(d, t);
+  const related = [...via.keys()].sort(compareKeys).map((d) => ({ via: via.get(d)!, decision: byKey.get(d)! }));
+
+  return { part, neighbours, decisions, flows, questions,
+    relatedDecisions: related.slice(0, MAX_RELATED_DECISIONS), relatedDecisionsMore: related.length > MAX_RELATED_DECISIONS };
 }
