@@ -9,8 +9,9 @@ export class NameRequired extends Error {
   constructor() { super("type your name first"); this.name = "NameRequired"; }
 }
 
-// The seam's two writes keep working with no name: `locate` is a read, and CAW names itself in an amendment's `from`.
-const SEAM_WRITES = /^\/v1\/projects\/[^/]+\/(locate|amendments)$/;
+// The seam's two writes keep working with no name: `locate` is a read (v1, and `spec/locate` from SPEC-106), and CAW names
+// itself in an amendment's `from`.
+const SEAM_WRITES = /^\/v1\/projects\/[^/]+\/(locate|spec\/locate|amendments)$/;
 const WRITE_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
 // The decoded, trimmed name, or null when the header is missing, not decodable, empty, too long or holds a NUL.

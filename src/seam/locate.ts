@@ -62,10 +62,15 @@ export async function scoreAll(db: Db, projectId: string, request: string): Prom
   return score([...new Set(words(request))], snapshot.parts, snapshot.links);
 }
 
+// The candidates for a request in any `{ parts, links }` — the latest snapshot (`locate`) or the live spec (SPEC-106).
+export function locateIn(spec: { parts: Part[]; links: Link[] }, request: string): { notInSpec: boolean; candidates: Candidate[] } {
+  const candidates = score([...new Set(words(request))], spec.parts, spec.links)
+    .filter((c) => c.score >= LOCATE_THRESHOLD).slice(0, MAX_CANDIDATES);
+  return { notInSpec: candidates.length === 0, candidates };
+}
+
 export async function locate(db: Db, projectId: string, request: string):
   Promise<{ version: number; notInSpec: boolean; candidates: Candidate[] }> {
   const { version, snapshot } = await latest(db, projectId);
-  const candidates = score([...new Set(words(request))], snapshot.parts, snapshot.links)
-    .filter((c) => c.score >= LOCATE_THRESHOLD).slice(0, MAX_CANDIDATES);
-  return { version, notInSpec: candidates.length === 0, candidates };
+  return { version, ...locateIn(snapshot, request) };
 }

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  boolean, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp, unique, uuid,
+  boolean, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp, unique, uniqueIndex, uuid,
 } from "drizzle-orm/pg-core";
 
 export const DEFAULT_ORGANISATION_ID = "00000000-0000-0000-0000-000000000001";
@@ -61,7 +61,9 @@ export const changeSets = pgTable("change_sets", {
   undoes: uuid("undoes").references((): any => changeSets.id),
   // REQ-103: who made the change (the typed name); null only on rows from before it.
   by: text("by"),
-});
+  // REQ-105 (SPEC-106 V2): the project's revision after this set — 1, 2, 3 … per project, assigned under the project lock.
+  rev: integer("rev").notNull(),
+}, (t) => [uniqueIndex("change_sets_project_rev_idx").on(t.projectId, t.rev)]);
 
 export const changes = pgTable("changes", {
   changeSetId: uuid("change_set_id").references(() => changeSets.id),

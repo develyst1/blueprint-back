@@ -19,7 +19,7 @@ async function project(db: Awaited<ReturnType<typeof testDb>>) {
 test("AC-11 base: a version row cannot be updated or deleted", async () => {
   const db = await testDb();
   const p = await project(db);
-  const [cs] = await db.insert(changeSets).values({ projectId: p.id, causeKind: "operator" }).returning();
+  const [cs] = await db.insert(changeSets).values({ projectId: p.id, causeKind: "operator", rev: 1 }).returning();
   await db.insert(versions).values({
     projectId: p.id, version: 1, confirmedBy: "operator", snapshot: {}, summary: {}, lastChangeSet: cs!.id,
   });
@@ -91,7 +91,7 @@ test("AC-2 base: a Thai title round-trips byte-identical", async () => {
 test("a confirmed version cannot be truncated", async () => {
   const db = await testDb();
   const p = await project(db);
-  const [cs] = await db.insert(changeSets).values({ projectId: p.id, causeKind: "operator" }).returning();
+  const [cs] = await db.insert(changeSets).values({ projectId: p.id, causeKind: "operator", rev: 1 }).returning();
   await db.insert(versions).values({
     projectId: p.id, version: 1, confirmedBy: "operator", snapshot: {}, summary: {}, lastChangeSet: cs!.id,
   });

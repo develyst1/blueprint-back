@@ -18,10 +18,18 @@ export type PartContext = {
 
 export async function partContext(db: Db, projectId: string, version: number, key: string): Promise<PartContext> {
   const v = await getVersion(db, projectId, version); // 404 for an unknown project or a version never confirmed
-  const byKey = new Map(v.parts.map((p) => [p.key, p]));
+  const body = contextIn({ parts: v.parts, links: v.links }, key);
+  if (!body) throw new NotFound(`part ${key} in version ${version}`);
+  return { projectId, version: v.version, confirmedAt: v.confirmedAt, ...body };
+}
+
+// The part's context from any `{ parts, links }` — a frozen snapshot (v1 above) or the live spec (SPEC-106, `seam/spec.ts`).
+// null when `key` is not one of the parts.
+export function contextIn(spec: { parts: Part[]; links: Link[] }, key: string): Omit<PartContext, "projectId" | "version" | "confirmedAt"> | null {
+  const byKey = new Map(spec.parts.map((p) => [p.key, p]));
   const part = byKey.get(key);
-  if (!part) throw new NotFound(`part ${key} in version ${version}`);
-  const links = v.links;
+  if (!part) return null;
+  const links = spec.links;
   const from = (kind: Link["kind"], fromKey: string) => links.filter((l) => l.kind === kind && l.fromKey === fromKey).map((l) => l.toKey);
   const to = (kind: Link["kind"], toKey: string) => links.filter((l) => l.kind === kind && l.toKey === toKey).map((l) => l.fromKey);
 
@@ -67,5 +75,5 @@ export async function partContext(db: Db, projectId: string, version: number, ke
     return { work: { key: w, title: byKey.get(w)!.title }, steps, at: steps.filter((s) => here.has(s.key)).map((s) => s.key) };
   });
 
-  return { projectId, version: v.version, confirmedAt: v.confirmedAt, part, neighbours, decisions, flows, questions };
+  return { part, neighbours, decisions, flows, questions };
 }

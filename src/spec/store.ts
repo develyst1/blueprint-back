@@ -2,6 +2,7 @@ import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client";
 import { auditEvents, changes, changeSets, links, parts, projects } from "../db/schema";
+import { notifySpecChanged } from "../seam/notify";
 import { NotFound, UndoConflict, ValidationError } from "./errors";
 import { compareKeys, KEY_RE, nextKey } from "./keys";
 import { checkLink, LINK_KINDS, PART_KINDS, type LinkKind, type PartKind } from "./registry";
@@ -20,6 +21,13 @@ type LinkForm = {
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// SPEC-106 V2: a project's revision = the highest `rev` of its change sets (0 when none). Callers hold the project lock
+// (`requireProject(…, true)`) when they take the next one, so two saves can never read the same max.
+export async function revisionOf(q: Q, projectId: string): Promise<number> {
+  const [row] = await q.select({ max: sql<number | null>`max(${changeSets.rev})` }).from(changeSets).where(eq(changeSets.projectId, projectId));
+  return row?.max ?? 0;
+}
 
 const partForm = (r: PartRow): PartForm =>
   ({ key: r.key!, kind: r.kind, title: r.title, body: r.body, origin: r.origin, removed: r.removedAt !== null });
@@ -105,11 +113,13 @@ export async function applyChangeSet(
   const cause = Cause.safeParse(input.cause);
   if (!cause.success) throw new ValidationError(null, `cause: ${z.prettifyError(cause.error)}`);
 
-  return db.transaction(async (tx) => {
+  let saved: { rev: number; at: Date } | null = null;
+  const result = await db.transaction(async (tx) => {
     // One change set at a time per project: keys and undo checks read then write.
     await requireProject(tx, projectId, true);
     const [cs] = await tx.insert(changeSets)
-      .values({ projectId, causeKind: cause.data.kind, causeRef: cause.data.ref ?? null, by: opts?.by ?? null }).returning();
+      .values({ projectId, causeKind: cause.data.kind, causeRef: cause.data.ref ?? null, by: opts?.by ?? null, rev: (await revisionOf(tx, projectId)) + 1 }).returning();
+    saved = { rev: cs!.rev, at: cs!.at };
     const allKeys = (await tx.select({ key: parts.key }).from(parts).where(eq(parts.projectId, projectId)))
       .map((r) => r.key!);
     const refs = new Map<string, string>();
@@ -213,6 +223,10 @@ export async function applyChangeSet(
     if (opts?.inTx) await opts.inTx(tx, result);
     return result;
   });
+  // SPEC-106 V3: after the commit, tell CAW — a hint, never awaited (the pull feed is the guarantee).
+  const s = saved as { rev: number; at: Date } | null;
+  if (s) void notifySpecChanged({ projectId, revision: s.rev, at: s.at.toISOString() });
+  return result;
 }
 
 function historyOp(entity: string, before: any, after: any): HistoryEntry["op"] {
@@ -281,7 +295,10 @@ export async function projectHistory(db: Db, projectId: string, limit: number): 
 }
 
 export async function undoChangeSet(db: Db, projectId: string, changeSetId: string, by?: string): Promise<{ changeSetId: string }> {
-  return db.transaction((tx) => undoIn(tx, projectId, changeSetId, by));
+  const done = await db.transaction((tx) => undoIn(tx, projectId, changeSetId, by));
+  // SPEC-106 V3: an undo is a saved spec change too. (`wouldUndo`'s dry run rolls back and never gets here.)
+  void notifySpecChanged({ projectId, revision: done.rev, at: done.at.toISOString() });
+  return { changeSetId: done.changeSetId };
 }
 
 class DryRun extends Error {}
@@ -321,7 +338,7 @@ export async function readChangeSet(db: Db, projectId: string, changeSetId: stri
   };
 }
 
-async function undoIn(tx: Tx, projectId: string, changeSetId: string, by?: string): Promise<{ changeSetId: string }> {
+async function undoIn(tx: Tx, projectId: string, changeSetId: string, by?: string): Promise<{ changeSetId: string; rev: number; at: Date }> {
   await requireProject(tx, projectId, true);
   const [original] = UUID_RE.test(changeSetId)
     ? await tx.select().from(changeSets).where(and(eq(changeSets.id, changeSetId), eq(changeSets.projectId, projectId)))
@@ -356,7 +373,7 @@ async function undoIn(tx: Tx, projectId: string, changeSetId: string, by?: strin
   if (changedSince.length) throw await conflict(changedSince);
 
   const [cs] = await tx.insert(changeSets)
-    .values({ projectId, causeKind: "undo", undoes: changeSetId, by: by ?? null }).returning();
+    .values({ projectId, causeKind: "undo", undoes: changeSetId, by: by ?? null, rev: (await revisionOf(tx, projectId)) + 1 }).returning();
   let seq = 0;
   const record = (entity: string, before: unknown, after: unknown) =>
     tx.insert(changes).values({ changeSetId: cs!.id, seq: ++seq, entity, before, after });
@@ -407,5 +424,5 @@ async function undoIn(tx: Tx, projectId: string, changeSetId: string, by?: strin
   }
   if (blocked.length) throw await conflict(blocked);
 
-  return { changeSetId: cs!.id };
+  return { changeSetId: cs!.id, rev: cs!.rev, at: cs!.at };
 }

@@ -88,7 +88,7 @@ describe.skipIf(process.env.BLUEPRINT_SIT !== "1")("SIT Postgres rules (skipped 
   test("1. a version row cannot be updated or deleted", async () => {
     await rolledBack(async (tx) => {
       const p = await project(tx);
-      const [cs] = await tx.insert(changeSets).values({ projectId: p.id, causeKind: "operator" }).returning();
+      const [cs] = await tx.insert(changeSets).values({ projectId: p.id, causeKind: "operator", rev: 1 }).returning();
       await tx.insert(versions).values({
         projectId: p.id, version: 1, confirmedBy: "operator", snapshot: {}, summary: {}, lastChangeSet: cs!.id,
       });
@@ -177,7 +177,7 @@ describe.skipIf(process.env.BLUEPRINT_SIT !== "1")("SIT Postgres rules (skipped 
   test("7. a confirmed version cannot be truncated", async () => {
     await rolledBack(async (tx) => {
       const p = await project(tx);
-      const [cs] = await tx.insert(changeSets).values({ projectId: p.id, causeKind: "operator" }).returning();
+      const [cs] = await tx.insert(changeSets).values({ projectId: p.id, causeKind: "operator", rev: 1 }).returning();
       await tx.insert(versions).values({
         projectId: p.id, version: 1, confirmedBy: "operator", snapshot: {}, summary: {}, lastChangeSet: cs!.id,
       });
@@ -244,7 +244,7 @@ describe.skipIf(process.env.BLUEPRINT_SIT !== "1")("SIT Postgres rules (skipped 
       const [item] = await add();
       expect(codeOf(await attempt(tx, add))).toBe("23505");
       // (b) a version's frozen quiz cannot be updated (the immutable trigger)
-      const [cs] = await tx.insert(changeSets).values({ projectId: p.id, causeKind: "operator" }).returning();
+      const [cs] = await tx.insert(changeSets).values({ projectId: p.id, causeKind: "operator", rev: 1 }).returning();
       await tx.insert(versions).values({ projectId: p.id, version: 1, confirmedBy: "operator", snapshot: {}, summary: {},
         lastChangeSet: cs!.id, quiz: { id: q!.id, score: 100 } });
       const upd = await attempt(tx, () => tx.update(versions).set({ quiz: { id: q!.id, score: 0 } }).where(eq(versions.projectId, p.id)).execute());

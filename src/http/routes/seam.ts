@@ -3,9 +3,10 @@ import type { Db } from "../../db/client";
 import { Amendment, addAmendment } from "../../seam/amend";
 import { partContext } from "../../seam/context";
 import { locate, NoConfirmedVersion } from "../../seam/locate";
+import { currentSpec, specChanges, specContext, specLocate } from "../../seam/spec";
 import { LINK_KIND_NAMES } from "../../spec/registry";
 import { ErrorBody, errors } from "../errors";
-import { PartSchema, ProjectParams } from "./projects";
+import { LinkSchema, PartSchema, ProjectParams } from "./projects";
 import { MessageSchema } from "./rounds";
 
 const json = <T extends z.ZodType>(schema: T, description: string) =>
@@ -39,7 +40,66 @@ const LocatedSchema = z.object({
   })),
 }).openapi("Located");
 
+// SPEC-106 (REQ-105) seam contract v2: the latest spec, named by a revision. Field casing is the contract Team B builds on.
+const LatestLabelSchema = z.object({
+  version: z.number().int(), label: z.string().nullable(), labelledAt: z.string(), by: z.string(),
+}).nullable();
+const SpecHead = { revision: z.number().int(), savedAt: z.string().nullable(), latestLabel: LatestLabelSchema };
+
+const CurrentSpecSchema = z.object({
+  projectId: z.string(), ...SpecHead, parts: z.array(PartSchema), links: z.array(LinkSchema),
+}).openapi("CurrentSpec");
+
+const SpecContextSchema = PartContextSchema.omit({ version: true, confirmedAt: true }).extend(SpecHead).openapi("SpecPartContext");
+
+const SpecLocatedSchema = LocatedSchema.omit({ version: true }).extend({ revision: z.number().int() }).openapi("SpecLocated");
+
+const SpecChangesSchema = z.object({
+  revision: z.number().int(),
+  latestLabel: LatestLabelSchema,
+  changes: z.array(z.object({
+    rev: z.number().int(), at: z.string(), by: z.string().nullable(),
+    cause: z.enum(["operator", "message", "source", "undo"]),
+    added: z.array(z.string()), changed: z.array(z.string()), removed: z.array(z.string()),
+  })),
+  more: z.boolean(),
+}).openapi("SpecChanges");
+
 export function seamRoutes(app: OpenAPIHono, db: Db) {
+  app.openapi(createRoute({
+    method: "get",
+    path: "/v1/projects/{projectId}/spec",
+    request: { params: ProjectParams },
+    responses: { 200: json(CurrentSpecSchema, "the current spec in one read, with its revision and the latest label"), 404: errors[404] },
+  }), async (c) => c.json(await currentSpec(db, c.req.valid("param").projectId), 200));
+
+  app.openapi(createRoute({
+    method: "get",
+    path: "/v1/projects/{projectId}/spec/parts/{key}/context",
+    request: { params: ProjectParams.extend({ key: z.string() }) },
+    responses: { 200: json(SpecContextSchema, "one part's context, from the current spec"), 404: errors[404] },
+  }), async (c) => {
+    const { projectId, key } = c.req.valid("param");
+    return c.json(await specContext(db, projectId, key), 200);
+  });
+
+  app.openapi(createRoute({
+    method: "post",
+    path: "/v1/projects/{projectId}/spec/locate",
+    request: {
+      params: ProjectParams,
+      body: { ...json(z.object({ request: z.string().min(1).max(1_000) }), "a change request in words"), required: true },
+    },
+    responses: { 200: json(SpecLocatedSchema, "the parts of the current spec the request touches, best first — or notInSpec"), 400: errors[400], 404: errors[404] },
+  }), async (c) => c.json(await specLocate(db, c.req.valid("param").projectId, c.req.valid("json").request), 200));
+
+  app.openapi(createRoute({
+    method: "get",
+    path: "/v1/projects/{projectId}/spec/changes",
+    request: { params: ProjectParams, query: z.object({ after: z.coerce.number().int().min(0).default(0) }) },
+    responses: { 200: json(SpecChangesSchema, "what changed since a revision, one entry per saved change set (first 500; `more` says there are further ones)"), 400: errors[400], 404: errors[404] },
+  }), async (c) => c.json(await specChanges(db, c.req.valid("param").projectId, c.req.valid("query").after), 200));
+
   app.openapi(createRoute({
     method: "get",
     path: "/v1/projects/{projectId}/versions/{version}/parts/{key}/context",

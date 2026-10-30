@@ -157,7 +157,7 @@ test("keys are never reused, not after a remove, not after an undo", async () =>
 test("ordering: STEP-999 sorts before STEP-1000", async () => {
   const { db, pid } = await setup();
   // Test setup only: rows written straight to the tables, with the change set that made them.
-  const [cs] = await db.insert(changeSets).values({ projectId: pid, causeKind: "operator" }).returning();
+  const [cs] = await db.insert(changeSets).values({ projectId: pid, causeKind: "operator", rev: 1 }).returning();
   for (const [seq, key] of [[1, "STEP-1000"], [2, "STEP-999"]] as const) {
     const form = { key, kind: "step", title: key, body: { ends: false }, origin, removed: false };
     await db.insert(parts).values({ projectId: pid, key, kind: "step", title: key, body: { ends: false }, origin });

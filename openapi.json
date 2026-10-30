@@ -508,6 +508,72 @@
           }
         ]
       },
+      "CurrentSpec": {
+        "properties": {
+          "latestLabel": {
+            "properties": {
+              "by": {
+                "type": "string"
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "labelledAt": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "version",
+              "label",
+              "labelledAt",
+              "by"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "savedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "projectId",
+          "revision",
+          "savedAt",
+          "latestLabel",
+          "parts",
+          "links"
+        ],
+        "type": "object"
+      },
       "Error": {
         "properties": {
           "error": {
@@ -1815,6 +1881,370 @@
           "status",
           "origin",
           "createdAt"
+        ],
+        "type": "object"
+      },
+      "SpecChanges": {
+        "properties": {
+          "changes": {
+            "items": {
+              "properties": {
+                "added": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "cause": {
+                  "enum": [
+                    "operator",
+                    "message",
+                    "source",
+                    "undo"
+                  ],
+                  "type": "string"
+                },
+                "changed": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "removed": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "rev": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "rev",
+                "at",
+                "by",
+                "cause",
+                "added",
+                "changed",
+                "removed"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "latestLabel": {
+            "properties": {
+              "by": {
+                "type": "string"
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "labelledAt": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "version",
+              "label",
+              "labelledAt",
+              "by"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "latestLabel",
+          "changes",
+          "more"
+        ],
+        "type": "object"
+      },
+      "SpecLocated": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "matched": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "score": {
+                  "type": "number"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "where": {
+                  "items": {
+                    "enum": [
+                      "title",
+                      "body",
+                      "link label"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "key",
+                "kind",
+                "title",
+                "score",
+                "matched",
+                "where"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "notInSpec": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "notInSpec",
+          "candidates",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "SpecPartContext": {
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array"
+          },
+          "flows": {
+            "items": {
+              "properties": {
+                "at": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "steps": {
+                  "items": {
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "position": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "title",
+                      "position"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "work": {
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "title"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "work",
+                "steps",
+                "at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "latestLabel": {
+            "properties": {
+              "by": {
+                "type": "string"
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "labelledAt": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "version",
+              "label",
+              "labelledAt",
+              "by"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "neighbours": {
+            "items": {
+              "properties": {
+                "direction": {
+                  "enum": [
+                    "out",
+                    "in"
+                  ],
+                  "type": "string"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "linkKind": {
+                  "enum": [
+                    "has_step",
+                    "next",
+                    "has_interaction",
+                    "from",
+                    "to",
+                    "carries",
+                    "reads",
+                    "writes",
+                    "shows",
+                    "covers",
+                    "about",
+                    "conflicts"
+                  ],
+                  "type": "string"
+                },
+                "part": {
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "kind",
+                    "title"
+                  ],
+                  "type": "object"
+                },
+                "position": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "direction",
+                "linkKind",
+                "label",
+                "position",
+                "part"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "part": {
+            "$ref": "#/components/schemas/Part"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "savedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "projectId",
+          "part",
+          "neighbours",
+          "decisions",
+          "flows",
+          "questions",
+          "revision",
+          "savedAt",
+          "latestLabel"
         ],
         "type": "object"
       },
@@ -3746,6 +4176,212 @@
               }
             },
             "description": "one source with its text"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/spec": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentSpec"
+                }
+              }
+            },
+            "description": "the current spec in one read, with its revision and the latest label"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/spec/changes": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecChanges"
+                }
+              }
+            },
+            "description": "what changed since a revision, one entry per saved change set (first 500; `more` says there are further ones)"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/spec/locate": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "request": {
+                    "maxLength": 1000,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "a change request in words",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecLocated"
+                }
+              }
+            },
+            "description": "the parts of the current spec the request touches, best first — or notInSpec"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "validation"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "not_found"
+          }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/spec/parts/{key}/context": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecPartContext"
+                }
+              }
+            },
+            "description": "one part's context, from the current spec"
           },
           "404": {
             "content": {
