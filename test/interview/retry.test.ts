@@ -92,11 +92,11 @@ test("D-023: changes_rejected with an answer in the same turn → the answer app
   const refused = { reply: "เพิ่มให้แล้ว", changes: [{ change: { op: "part.add", ref: "$x", kind: "question", title: "คำถามใหม่", body: { text: "คำถามใหม่" } },
     saidBy: "inferred", sure: true }], questions: [], contradictions: [] };
   const r = await runRound(db, fakeGateway([refused, refused]).gateway, pid, { message: "ต่อเลย", answers: [{ key: "Q-002", text: "ผู้ดูแลห้อง" }] }, { today: TODAY });
-  expect([r.status, r.reply, typeof r.changeSetId]).toEqual(["changes_rejected", "เพิ่มให้แล้ว", "string"]);
+  expect([r.status, r.reply, typeof r.changeSetId]).toEqual(["changes_rejected", null, "string"]); // REQ-110 E2: a rejected round shows no model text
   const spec = await loadSpec(db, pid);
   expect(spec.parts.find((p) => p.key === "Q-002")!.body).toMatchObject({ status: "answered", answer: "ผู้ดูแลห้อง" });
   expect(spec.parts.some((p) => p.title === "คำถามใหม่")).toBe(false);
-  expect((await row(db, r.messageIds[1]!))).toMatchObject({ roundStatus: "changes_rejected", content: "เพิ่มให้แล้ว", changeSetId: r.changeSetId });
+  expect((await row(db, r.messageIds[1]!))).toMatchObject({ roundStatus: "changes_rejected", content: "", roundReason: "unknown_kind", roundNote: "question", changeSetId: r.changeSetId }); // REQ-110 E2
 });
 
 test("retry: after a failed turn → one more gateway call, no new user row, a new bot row caused by the same user row", async () => {

@@ -160,27 +160,23 @@ test("TASK-C-044 (REQ-017 G-1/G-2): a recorded reply that adds a work with a goa
   expect(duties).toEqual([["พนักงาน", "เลือกห้องและส่งคำขอจอง"], ["ผู้ดูแลห้อง", "อนุมัติหรือปฏิเสธคำขอจองห้องใหญ่"]]);
 });
 
-test("AC-6: an invalid change → nothing applied, one correction call with the error; still invalid → changes_rejected", async () => {
+// SPEC-105 E5 (TASK-123): was "an invalid change → nothing applied, one correction call; still invalid → changes_rejected".
+// Now the valid change is stored and only the one the store refuses is dropped and recorded — no correction call for a store refusal.
+test("AC-6: an invalid change → the valid one is stored, the invalid one dropped and recorded, no extra call", async () => {
   const { db, pid } = await project();
   const before = await loadSpec(db, pid);
   const bad = { ...empty, changes: [
     { change: { op: "part.add", ref: "$r", kind: "role", title: "ฝ่ายบัญชี", body: {} }, saidBy: "user", sure: true },
     { change: { op: "link.add", kind: "shows", from: "STEP-001", to: "DATA-001" }, saidBy: "user", sure: true },
   ] };
-  const fake = fakeGateway([said(bad), said(bad)]);
+  const fake = fakeGateway([said(bad)]);
   const round = await runRound(db, fake.gateway, pid, { message: "เพิ่มให้หน่อย" }, { today: TODAY });
-  expect(round.status).toBe("changes_rejected");
-  expect(round.changeSetId).toBeNull();
-  expect(fake.requests).toHaveLength(2);
-  expect(allText(fake.requests[1]!)).toContain("shows");
-  expect(allText(fake.requests[1]!)).toMatch(/cannot start at a step/);
-  expect(await loadSpec(db, pid)).toEqual(before);
-
-  const { db: db2, pid: pid2 } = await project();
-  const fixed = { ...empty, changes: [bad.changes[0]] };
-  const fake2 = fakeGateway([said(bad), said(fixed)]);
-  const ok = await runRound(db2, fake2.gateway, pid2, { message: "เพิ่มให้หน่อย" }, { today: TODAY });
-  expect([ok.status, fake2.requests.length]).toEqual(["applied", 2]);
+  expect([round.status, round.reply, typeof round.changeSetId, fake.requests.length]).toEqual(["applied", null, "string", 1]);
+  expect(round.refused).toEqual([expect.objectContaining({ item: "changes[1]", op: "link.add", kind: "shows", reason: "invalid_change", detail: expect.stringMatching(/cannot start at a step/) })]);
+  const after = await loadSpec(db, pid);
+  expect(after.parts.length).toBe(before.parts.length + 1);
+  expect(after.parts.some((p) => p.title === "ฝ่ายบัญชี")).toBe(true);
+  expect(after.links).toEqual(before.links);
 });
 
 test("AC-7: an unsure change becomes a question and is not applied", async () => {
@@ -264,7 +260,7 @@ test("review: correction text names the model's own item; a NUL in the reply is 
   const { db, pid } = await project();
   const bad = { ...empty, changes: [
     { change: { op: "part.add", ref: "$r", kind: "role", title: "ฝ่ายบัญชี", body: {} }, saidBy: "user", sure: true },
-    { change: { op: "link.add", kind: "shows", from: "STEP-001", to: "DATA-001" }, saidBy: "user", sure: true },
+    { change: { op: "part.add", ref: "$f", kind: "feature", title: "ฟีเจอร์", body: {} }, saidBy: "user", sure: true }, // TASK-123: a refusal `build()` makes, which asks for the correction
   ] };
   const fake = fakeGateway([said(bad), said(bad)]);
   await runRound(db, fake.gateway, pid, { message: "เพิ่ม", accept: ["Q-001"] }, { today: TODAY });

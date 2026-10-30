@@ -5,10 +5,11 @@ import type { Db } from "../db/client";
 import { messages, projects, sources } from "../db/schema";
 import type { ChatMessage, Gateway } from "../gateway/client";
 import { NotFound, ValidationError } from "../spec/errors";
+import { LINK_KINDS, PART_KINDS, type PartKind } from "../spec/registry";
 import { applyChangeSet, loadSpec } from "../spec/store";
 import { computeStuck } from "../spec/stuck";
 import type { Change, Link, Origin, Part } from "../spec/types";
-import { buildRequest, HISTORY } from "./context";
+import { buildRequest, HISTORY, MODEL_KINDS, optionalField, shapeOf } from "./context";
 import { parseReply, type ModelReply } from "./protocol";
 
 export const MAX_MESSAGE_CHARS = 20_000;
@@ -23,14 +24,41 @@ export const MAX_ANSWER_CHARS = 2_000;
 export const MAX_PARK = 20;
 export const MAX_PARK_REASON_CHARS = 500;
 export const MAX_SUGGESTIONS = 5;
-// What the model may change itself (Provenance guard rule 4): questions and contradictions have their own channels.
-const MODEL_KINDS = new Set(["work", "step", "interaction", "role", "screen", "api", "system", "data", "decision"]);
 const PROTECTED = new Set(["operator", "customer-asked", "customer-validated"]);
 
 export type RoundStatus = "applied" | "no_changes" | "changes_rejected" | "bot_could_not_answer";
+// SPEC-105 E2: why a round was rejected. `unknown_kind`: a part/link kind the server does not accept · `needs_user_words`: the
+// provenance guard · `invalid_change`: any other refusal · `protocol`: the correction was not the JSON.
+export type RejectReason = "unknown_kind" | "needs_user_words" | "invalid_change" | "protocol";
+export const MAX_NOTE_CHARS = 60;
+// SPEC-105 E6: one model item the server did not store. `depends_on_refused`: it names the `$ref` of an item that was refused.
+export type ItemReason = "unknown_kind" | "needs_user_words" | "invalid_change" | "depends_on_refused";
+export const MAX_REFUSED = 50;
+export const MAX_RAW_CHARS = 4000;
+// SPEC-105 E8/E9: what the server changed in an item it stored. `ref_renamed` (from → to) · `body_defaulted` (a part.add with no
+// body) · `wrapped_in_list` (field: a string where a list of strings goes) · `field_dropped` (field: an optional field that was wrong).
+// E11: `op_renamed` (from `type` → to `op`): a change that carried its op under `type`.
+export type Adjusted = { item: string; what: "ref_renamed" | "body_defaulted" | "wrapped_in_list" | "field_dropped" | "op_renamed"; field?: string; from?: string; to?: string };
+// …as recorded: with `title` / `key` / `ref` of the stored item, exactly as a `round_refused` entry has them, so a line can name the part.
+export type AdjustedEntry = Adjusted & { title: string | null; key: string | null; ref: string | null };
+export type AdjustedRecord = (AdjustedEntry | { item: "more"; count: number })[];
+export const MAX_TITLE_CHARS = 80;
+export const MAX_DETAIL_CHARS = 200;
+type Refused = {
+  item: string; op: string | null; kind: string | null; ref: string | null; key: string | null; title: string | null;
+  reason: ItemReason; detail: string; note?: string; // `note` feeds the round's summary code only; it is not stored per item
+};
+/** What the bot row and the Round response carry: the first 50 refused items, then `{ item: "more", count }` for the rest. */
+export type RefusedRecord = (Omit<Refused, "note"> | { item: "more"; count: number })[];
 export type Round = {
   status: RoundStatus; reply: string | null; changeSetId: string | null;
   questions: string[]; contradictions: string[]; failedSources: string[]; messageIds: string[];
+  /** REQ-110: `changes_rejected` → a RejectReason (reply is null); `bot_could_not_answer` → the gateway's reason; else null. */
+  reason: string | null; note: string | null;
+  /** REQ-110 round 2: every model item not stored (the reply is then null); null when nothing was refused. */
+  refused: RefusedRecord | null; saved: number | null; // saved = model items stored, set with `refused`
+  /** REQ-110 round 3: what the server adjusted in the items it stored; null when nothing. */
+  adjusted: AdjustedRecord | null;
 };
 export type RoundInput = {
   message?: string; accept?: string[];
@@ -48,6 +76,11 @@ const NO_REPLY: ModelReply = { reply: "", changes: [], questions: [], contradict
 export type Message = {
   id: string; role: "user" | "bot" | "caw"; content: string; model: string; creativity: number;
   roundStatus: string | null; changeSetId: string | null; createdAt: string;
+  roundReason: string | null; roundNote: string | null; // REQ-110; null on every row that is not a failed bot row
+  roundRefused: RefusedRecord | null; // REQ-110 round 2; null unless the server dropped something of the model's answer
+  roundSaved: number | null; // …and how many model items it did store in that round; null exactly when roundRefused is
+  roundAdjusted: AdjustedRecord | null; // REQ-110 round 3; null unless the server adjusted a stored item
+  roundRaw: string | null; // REQ-110 round 3: the first 4000 chars of a reply the server could not read; for the team, not the UI
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -60,12 +93,12 @@ const tidy = (s: string) => s.trim().replace(/\s+/g, " ");
 const ABOUT_RANK: Record<string, number> = { work: 0, step: 1, screen: 2, api: 3 };
 
 type SourceRow = { id: string; name: string; status: string; reason: string | null; text: string | null; origin: unknown };
-// `labels[i]` says where `changes[i]` came from, so a refusal can name the model's own item (or show it was ours).
-type Built = { ok: true; changes: Change[]; labels: string[]; questionRefs: string[]; contradictionRefs: string[] } | { ok: false; error: string };
+type Refusal = { error: string; reason: RejectReason; note?: string };
+// `invalid`: nothing of the model's answer could be stored (the refusals are in `refused`) · `applied.refused` is what was left out.
 type Applied =
-  | { status: "applied"; changeSetId: string; questions: string[]; contradictions: string[]; botRowId: string }
+  | { status: "applied"; changeSetId: string; questions: string[]; contradictions: string[]; botRowId: string; refused: RefusedRecord | null; saved: number | null; adjusted: AdjustedRecord | null }
   | { status: "no_changes"; contradictions: string[] }
-  | { status: "invalid"; error: string };
+  | ({ status: "invalid"; refused: Refused[] } & Refusal);
 
 // Messages are ordered by `created_at`, and the clock can give two rows the same millisecond (seen: 171 of 200
 // quick pairs). So a new row is always stamped strictly after the project's newest message — the order is exact.
@@ -83,48 +116,219 @@ async function requireProject(db: Db, projectId: string) {
   return p;
 }
 
-// The answer → one list of REQ-001 changes, stamped by the server (SPEC steps 1–4). An invalid answer is an error
-// string, which goes to the one correction call.
-function build(answer: ModelReply, ctx: {
+// SPEC-105 E5: the answer → the REQ-001 changes the server can store, stamped by the server (SPEC steps 1–4), plus every model
+// item it could not. Each model item (`changes[i]`, `questions[k]`, `contradictions[k]`, `suggestions[i]`) is checked on its own;
+// an item that is refused is left out together with every item that names its `$ref`. `item` says where an entry came from, so
+// a refusal — or the store's own `ValidationError(index)` — can be mapped back to the model's item. `server:…` items are the
+// user's own decisions and are never dropped.
+type Entry = { item: string; change: Change };
+type Plan = {
+  entries: Entry[]; refused: Refused[]; adjusted: Adjusted[];
+  questionRefs: { item: string; ref: string }[]; contradictionRefs: { item: string; ref: string }[];
+};
+const isServer = (e: Entry) => e.item.startsWith("server:");
+// The `$ref`s a change names (a link's ends, an update's or removal's key): what it cannot be stored without.
+const namesOf = (c: Change): string[] =>
+  [(c as { key?: unknown }).key, (c as { from?: unknown }).from, (c as { to?: unknown }).to]
+    .filter((v): v is string => typeof v === "string" && v.startsWith("$"));
+const short = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : null);
+function describe(item: string, change: Record<string, unknown>, reason: ItemReason, detail: string,
+  extra: { note?: string; ref?: string | null } = {}): Refused {
+  return {
+    item, op: short(change.op, 40), kind: short(change.kind, 40), ref: extra.ref !== undefined ? extra.ref : short(change.ref, 40),
+    key: short(change.key, 40), title: short(change.title, MAX_TITLE_CHARS), reason, detail: detail.slice(0, MAX_DETAIL_CHARS),
+    ...(extra.note !== undefined ? { note: extra.note.slice(0, MAX_NOTE_CHARS) } : {}),
+  };
+}
+// Drops every item that names a dead `$ref`, and the refs those items defined, until nothing more names one.
+function cascade(entries: Entry[], dead: Set<string>): { kept: Entry[]; dropped: Refused[] } {
+  let kept = entries;
+  const dropped: Refused[] = [];
+  for (;;) {
+    const hit = kept.find((e) => !isServer(e) && namesOf(e.change).some((r) => dead.has(r)));
+    if (!hit) return { kept, dropped };
+    const via = namesOf(hit.change).find((r) => dead.has(r))!;
+    const gone = kept.filter((e) => e.item === hit.item);
+    kept = kept.filter((e) => e.item !== hit.item);
+    dropped.push(describe(hit.item, gone[0]!.change as Record<string, unknown>, "depends_on_refused", `needs ${via}, which was not saved`, { ref: via }));
+    for (const e of gone) if (e.change.op === "part.add") dead.add(e.change.ref);
+  }
+}
+// SPEC-105 E6 `round_saved`: the model items (changes / questions / contradictions) that are in the set; the user's own
+// decisions, suggestions and the link rows of one item are not counted.
+const savedItems = (entries: Entry[]) => new Set(entries.filter((e) => /^(changes|questions|contradictions)\[/.test(e.item)).map((e) => e.item)).size;
+// What was adjusted in the items that are in the set (an item that was refused or dropped afterwards leaves no trace here).
+function adjustedRecord(adjusted: Adjusted[], entries: Entry[]): AdjustedRecord | null {
+  const stored = new Set(entries.map((e) => e.item));
+  const named = (a: Adjusted): AdjustedEntry => {
+    const c = (entries.find((e) => e.item === a.item)?.change ?? {}) as Record<string, unknown>;
+    const { item, what, ...rest } = a;
+    return { item, what, title: short(c.title, MAX_TITLE_CHARS), key: short(c.key, 40), ref: short(c.ref, 40), ...rest };
+  };
+  const kept = adjusted.filter((a) => stored.has(a.item)).map(named);
+  if (kept.length === 0) return null;
+  return kept.length > MAX_REFUSED ? [...kept.slice(0, MAX_REFUSED), { item: "more", count: kept.length - MAX_REFUSED }] : kept;
+}
+function toRecord(refused: Refused[]): RefusedRecord {
+  const shown = refused.slice(0, MAX_REFUSED).map(({ note: _note, ...item }) => item);
+  return refused.length > MAX_REFUSED ? [...shown, { item: "more", count: refused.length - MAX_REFUSED }] : shown;
+}
+
+// SPEC-105 E8: repair only what has one reading, before anything is validated, and say what was repaired. (a) a `$ref` with
+// characters other than letters, digits and `_` → each run of them becomes `_`, the same way everywhere that ref appears in this
+// answer; two different refs that would become equal are both left alone (they fail as before). (b) a part.add with no body → {}.
+// (c) a string where the kind's body wants a list of strings → a list of that string. Nothing else is coerced.
+const REF_OK = /^\$[A-Za-z0-9_]+$/;
+const defType = (schema: unknown) => (schema as { def: { type: string; innerType?: unknown; element?: unknown } }).def;
+function isStringList(schema: unknown): boolean {
+  const def = defType(schema);
+  if (def.type === "optional" || def.type === "default") return isStringList(def.innerType);
+  return def.type === "array" && defType(def.element).type === "string";
+}
+const bodyShape = (kind: unknown) => (typeof kind === "string" && Object.hasOwn(PART_KINDS, kind) ? shapeOf(PART_KINDS[kind as PartKind].body as never) : null);
+function repair(answer: ModelReply, live: Map<string, Part>): { answer: ModelReply; adjusted: Adjusted[] } {
+  const adjusted: Adjusted[] = [];
+  const changes = answer.changes.map((it) => ({ ...it, change: { ...it.change } as Record<string, unknown> }));
+  // (a)
+  const target = (r: string) => (REF_OK.test(r) ? r : `$${r.slice(1).replace(/[^A-Za-z0-9_]+/g, "_")}`);
+  const defined = new Map<string, string>(); // each distinct `$ref` a part.add defines → the item that defines it
+  for (const [i, it] of changes.entries()) {
+    const r = it.change.ref;
+    if (it.change.op === "part.add" && typeof r === "string" && r.length > 1 && r.startsWith("$") && !defined.has(r)) defined.set(r, `changes[${i}]`);
+  }
+  const becomes = new Map<string, Set<string>>();
+  for (const r of defined.keys()) becomes.set(target(r), (becomes.get(target(r)) ?? new Set()).add(r));
+  const renamed = new Map<string, string>();
+  for (const [r, item] of defined) {
+    const to = target(r);
+    if (to !== r && becomes.get(to)!.size === 1) { renamed.set(r, to); adjusted.push({ item, what: "ref_renamed", from: r, to }); }
+  }
+  const sub = (v: unknown) => (typeof v === "string" && renamed.has(v) ? renamed.get(v)! : v);
+  if (renamed.size > 0) {
+    for (const it of changes) for (const f of ["ref", "from", "to", "key"]) if (f in it.change) it.change[f] = sub(it.change[f]);
+  }
+  const questions = renamed.size > 0 ? answer.questions.map((q) => ({ ...q, about: q.about === undefined ? undefined : (sub(q.about) as string) })) : answer.questions;
+  const contradictions = renamed.size > 0 ? answer.contradictions.map((c) => ({ ...c, between: c.between.map((b) => sub(b) as string) })) : answer.contradictions;
+  // (b), (c)
+  for (const [i, it] of changes.entries()) {
+    const c = it.change;
+    if (c.op === "part.add" && c.body === undefined) { c.body = {}; adjusted.push({ item: `changes[${i}]`, what: "body_defaulted" }); }
+    if ((c.op === "part.add" || c.op === "part.update") && c.body && typeof c.body === "object" && !Array.isArray(c.body)) {
+      const shape = bodyShape(c.op === "part.add" ? c.kind : live.get(String(c.key))?.kind);
+      if (!shape) continue;
+      const body = { ...(c.body as Record<string, unknown>) };
+      for (const [field, schema] of Object.entries(shape)) {
+        if (typeof body[field] === "string" && isStringList(schema)) { body[field] = [body[field]]; adjusted.push({ item: `changes[${i}]`, what: "wrapped_in_list", field }); }
+      }
+      c.body = body;
+    }
+  }
+  return { answer: { ...answer, changes: changes as unknown as ModelReply["changes"], questions, contradictions }, adjusted };
+}
+
+// SPEC-105 E9: if a body fails only on optional or defaulted top-level fields, those fields are removed and the rest is kept;
+// the removed names come back. Any other failure (a required field, an unknown field) → null, and the item is refused as before.
+function withoutBadOptionals(kind: unknown, body: unknown): { body: Record<string, unknown>; dropped: string[] } | null {
+  const shape = bodyShape(kind);
+  if (!shape || !body || typeof body !== "object" || Array.isArray(body)) return null;
+  const schema = PART_KINDS[kind as PartKind].body;
+  const first = schema.safeParse(body);
+  if (first.success) return null;
+  const dropped = new Set<string>();
+  for (const issue of first.error.issues) {
+    const field = issue.path[0];
+    if (issue.code === "unrecognized_keys" || typeof field !== "string" || !shape[field] || !optionalField(shape[field])) return null;
+    dropped.add(field);
+  }
+  const rest = Object.fromEntries(Object.entries(body as Record<string, unknown>).filter(([k]) => !dropped.has(k)));
+  return schema.safeParse(rest).success ? { body: rest, dropped: [...dropped] } : null;
+}
+
+function build(raw: ModelReply, ctx: {
   parts: Part[]; links: Link[]; sources: SourceRow[]; today: string; message?: string;
   accepted: { part: Part; proposedAnswer: string }[];
   answered: { part: Part; text: string }[]; parked: { part: Part; reason?: string }[];
-}): Built {
+}): Plan {
   const live = new Map(ctx.parts.map((p) => [p.key, p]));
+  const { answer, adjusted } = repair(raw, live);
   // A quote counts only from 10 characters, normalised (rule 2, TASK-A-023): shorter words occur by chance.
   const found = (quote: string | undefined, text: string | undefined | null) =>
     !!quote && norm(quote).length >= MIN_QUOTE_CHARS && text != null && norm(text).includes(norm(quote));
   const isProtected = (key: unknown) => typeof key === "string" && PROTECTED.has(live.get(key)?.origin.stamp ?? "");
   const operator: Origin = { stamp: "operator", date: ctx.today };
   const guess: Origin = { stamp: "team-proposed", date: ctx.today };
-  const out: Change[] = ctx.accepted.map(({ part, proposedAnswer }) => ({
-    op: "part.update", key: part.key, body: { ...part.body, status: "answered", answer: proposedAnswer }, origin: operator,
+  const entries: Entry[] = ctx.accepted.map(({ part, proposedAnswer }) => ({
+    item: `server:accept ${part.key}`,
+    change: { op: "part.update", key: part.key, body: { ...part.body, status: "answered", answer: proposedAnswer }, origin: operator },
   }));
-  const labels: string[] = ctx.accepted.map(({ part }) => `server:accept ${part.key}`);
+  const refused: Refused[] = [];
   // Addendum A: A-R1 an answer in the user's own words (operator, like accept) · A-R3 park (origin unchanged).
   for (const { part, text } of ctx.answered) {
-    out.push({ op: "part.update", key: part.key, body: { ...part.body, status: "answered", answer: text }, origin: operator });
-    labels.push(`server:answer ${part.key}`);
+    entries.push({ item: `server:answer ${part.key}`, change: { op: "part.update", key: part.key, body: { ...part.body, status: "answered", answer: text }, origin: operator } });
   }
   for (const { part, reason } of ctx.parked) {
-    out.push({ op: "part.update", key: part.key, body: { ...part.body, status: "parked", ...(reason ? { parkedReason: reason } : {}) } });
-    labels.push(`server:park ${part.key}`);
+    entries.push({ item: `server:park ${part.key}`, change: { op: "part.update", key: part.key, body: { ...part.body, status: "parked", ...(reason ? { parkedReason: reason } : {}) } } });
   }
   // A-R2: the user's own words = this round's message plus every answer text.
   const ownWords = [ctx.message ?? "", ...ctx.answered.map((a) => a.text)].join("\n");
 
   const refKinds = new Map<string, string>();
-  const asked: { text: string; proposedAnswer: string; cases: string[]; about?: string }[] = [];
+  const dead = new Set<string>(); // `$ref`s of part.adds that were refused
+  const asked: { text: string; proposedAnswer: string; cases: string[]; about?: string; item: string }[] = [];
   for (const [i, item] of answer.changes.entries()) {
+    const id = `changes[${i}]`;
     // Provenance guard: the server only ever lowers a stamp (rules 2, 3). `userSaid` = a quote of this round's message.
     const userSaid = item.saidBy === "user" && found(item.quote, ownWords);
+    const change = { ...item.change } as Record<string, unknown>;
+    // One refusal per item: the first rule it breaks. Rule 4: allowed ops and kinds · rule 5: parts stamped operator/customer-*
+    // need the user's own words.
+    const problem = ((): { why: string; reason?: ItemReason; note?: string } | null => {
+      if (item.saidBy !== "user" && item.saidBy !== "inferred") {
+        const sourceId = item.saidBy.source;
+        if (!ctx.sources.some((s) => s.id === sourceId && s.status === "read")) {
+          return { why: `saidBy names "${sourceId}", which is not a read source of this project` };
+        }
+      }
+      if (!item.sure && !item.ifUnsure) return { why: "sure is false but ifUnsure is missing" };
+      if (!item.sure) return null; // not applied: it becomes a question (AC-7)
+      if (change.op === "part.add" && !MODEL_KINDS.has(String(change.kind))) {
+        return { why: `a ${String(change.kind)} cannot be added as a change — use questions / contradictions`, reason: "unknown_kind", note: String(change.kind) };
+      }
+      if (change.op === "link.add" && !Object.hasOwn(LINK_KINDS, String(change.kind))) {
+        return { why: `unknown link kind "${String(change.kind)}"`, reason: "unknown_kind", note: String(change.kind) };
+      }
+      if (change.op === "part.update") {
+        const target = live.get(String(change.key));
+        if (target && !MODEL_KINDS.has(target.kind)) return { why: `a ${target.kind} cannot be changed here — use accept or a new question` };
+        if (isProtected(change.key) && !userSaid) return { why: `${String(change.key)} was stated by a person; changing it needs the user's own words (quote)`, reason: "needs_user_words" };
+      }
+      if (change.op === "part.remove" && !userSaid) return { why: "removing a part needs the user's own words (quote)", reason: "needs_user_words" };
+      if (change.op === "link.remove") {
+        const link = ctx.links.find((l) => l.id === change.id);
+        if (link && (isProtected(link.fromKey) || isProtected(link.toKey)) && !userSaid) {
+          return { why: "this link touches a part stated by a person; removing it needs the user's own words (quote)", reason: "needs_user_words" };
+        }
+      }
+      if (!["part.add", "part.update", "part.remove", "link.add", "link.update", "link.remove"].includes(String(change.op))) {
+        return { why: `unknown op "${String(change.op)}"` };
+      }
+      return null;
+    })();
+    if (problem) {
+      refused.push(describe(id, change, problem.reason ?? "invalid_change", problem.why, { note: problem.note }));
+      if (change.op === "part.add" && typeof change.ref === "string") dead.add(change.ref);
+      continue;
+    }
+    if (!item.sure) {
+      asked.push({ ...item.ifUnsure!, item: id });
+      continue;
+    }
     let origin: Origin;
     if (item.saidBy === "user") origin = userSaid ? operator : guess;
     else if (item.saidBy === "inferred") origin = guess;
     else {
-      const id = item.saidBy.source;
-      const src = ctx.sources.find((s) => s.id === id && s.status === "read");
-      if (!src) return { ok: false, error: `changes[${i}]: saidBy names "${id}", which is not a read source of this project` };
+      const sourceId = item.saidBy.source;
+      const src = ctx.sources.find((s) => s.id === sourceId && s.status === "read")!;
       const from = src.origin as Origin;
       origin = !found(item.quote, src.text)
         ? { ...guess, sourceId: src.id }
@@ -132,45 +336,36 @@ function build(answer: ModelReply, ctx: {
           ? { stamp: "customer-asked", date: ctx.today, ...(from.channel ? { channel: from.channel } : {}), sourceId: src.id }
           : { ...from, date: ctx.today, sourceId: src.id };
     }
-    if (!item.sure) {
-      if (!item.ifUnsure) return { ok: false, error: `changes[${i}]: sure is false but ifUnsure is missing` };
-      asked.push(item.ifUnsure); // not applied: it becomes a question (AC-7)
-      continue;
-    }
-    const change = { ...item.change } as Record<string, unknown>;
-    // Rule 4: allowed ops and kinds · rule 5: parts stamped operator/customer-* need the user's own words.
-    const refused = (why: string): Built => ({ ok: false, error: `changes[${i}]: ${why}` });
-    if (change.op === "part.add" && !MODEL_KINDS.has(String(change.kind))) {
-      return refused(`a ${String(change.kind)} cannot be added as a change — use questions / contradictions`);
-    }
-    if (change.op === "part.update") {
-      const target = live.get(String(change.key));
-      if (target && !MODEL_KINDS.has(target.kind)) return refused(`a ${target.kind} cannot be changed here — use accept or a new question`);
-      if (isProtected(change.key) && !userSaid) return refused(`${String(change.key)} was stated by a person; changing it needs the user's own words (quote)`);
-    }
-    if (change.op === "part.remove" && !userSaid) return refused("removing a part needs the user's own words (quote)");
-    if (change.op === "link.remove") {
-      const link = ctx.links.find((l) => l.id === change.id);
-      if (link && (isProtected(link.fromKey) || isProtected(link.toKey)) && !userSaid) {
-        return refused("this link touches a part stated by a person; removing it needs the user's own words (quote)");
+    if (change.op === "part.add" || change.op === "link.add" || change.op === "part.update") change.origin = origin;
+    if (change.op === "part.add" || change.op === "part.update") {
+      const fixed = withoutBadOptionals(change.op === "part.add" ? change.kind : live.get(String(change.key))?.kind, change.body);
+      if (fixed) {
+        change.body = fixed.body;
+        for (const field of fixed.dropped) adjusted.push({ item: id, what: "field_dropped", field });
       }
     }
-    if (!["part.add", "part.update", "part.remove", "link.add", "link.update", "link.remove"].includes(String(change.op))) {
-      return refused(`unknown op "${String(change.op)}"`);
-    }
-    if (change.op === "part.add" || change.op === "link.add" || change.op === "part.update") change.origin = origin;
-    if (change.op === "part.add" && typeof change.ref === "string") refKinds.set(change.ref, String(change.kind));
-    out.push(change as Change);
-    labels.push(`changes[${i}]`);
+    entries.push({ item: id, change: change as Change });
   }
+  // Items that name the ref of a refused part.add go with it (transitively).
+  const pruned = cascade(entries, dead);
+  refused.push(...pruned.dropped);
+  entries.splice(0, entries.length, ...pruned.kept);
+  for (const e of entries) if (e.change.op === "part.add") refKinds.set(e.change.ref, e.change.kind);
 
   const known = (key: string) => live.has(key) || refKinds.has(key);
+  // A question or contradiction side that points at a part: fine, or why this item cannot be stored.
+  const pointsAt = (key: string, side: string): { reason: ItemReason; detail: string; ref: string | null } | null =>
+    dead.has(key) ? { reason: "depends_on_refused", detail: `needs ${key}, which was not saved`, ref: key }
+      : known(key) ? null : { reason: "invalid_change", detail: `${side} "${key}" is not a part or a $ref of this answer`, ref: null };
   const existing = new Set(ctx.parts.filter((p) => p.kind === "question").map((p) => sameQuestionKey(String(p.body.text ?? p.title))));
   const kept: typeof asked = [];
-  for (const q of [...asked, ...answer.questions]) {
-    if (!q.text.trim()) return { ok: false, error: "a question has no text" };
-    if (!q.proposedAnswer.trim()) return { ok: false, error: `question "${q.text}": proposedAnswer is empty` };
-    if (q.about !== undefined && !known(q.about)) return { ok: false, error: `question "${q.text}": about "${q.about}" is not a part or a $ref of this answer` };
+  for (const q of [...asked, ...answer.questions.map((q, k) => ({ ...q, item: `questions[${k}]` }))]) {
+    const refuse = (reason: ItemReason, detail: string, ref: string | null = null) =>
+      refused.push({ item: q.item, op: "part.add", kind: "question", ref, key: null, title: short(tidy(q.text), MAX_TITLE_CHARS) || null, reason, detail: detail.slice(0, MAX_DETAIL_CHARS) });
+    if (!q.text.trim()) { refuse("invalid_change", "a question has no text"); continue; }
+    if (!q.proposedAnswer.trim()) { refuse("invalid_change", "proposedAnswer is empty"); continue; }
+    const bad = q.about !== undefined ? pointsAt(q.about, "about") : null;
+    if (bad) { refuse(bad.reason, bad.detail, bad.ref); continue; }
     const n = sameQuestionKey(q.text);
     if (existing.has(n)) continue; // already asked (AC-4)
     existing.add(n);
@@ -179,18 +374,14 @@ function build(answer: ModelReply, ctx: {
   const kindOf = (q: { about?: string }) => (q.about === undefined ? 5 : ABOUT_RANK[live.get(q.about)?.kind ?? refKinds.get(q.about) ?? ""] ?? 4);
   const ranked = kept.map((q, i) => ({ q, i })).sort((a, b) => kindOf(a.q) - kindOf(b.q) || a.i - b.i).slice(0, MAX_NEW_QUESTIONS);
 
-  const questionRefs: string[] = [];
+  const questionRefs: Plan["questionRefs"] = [];
   for (const [j, { q }] of ranked.entries()) {
     const ref = `$srvq${j + 1}`;
-    questionRefs.push(ref);
+    questionRefs.push({ item: q.item, ref });
     const text = tidy(q.text); // stored trimmed, inner spaces collapsed (step 5)
-    out.push({ op: "part.add", ref, kind: "question", title: text,
-      body: { text, proposedAnswer: q.proposedAnswer, cases: q.cases, status: "open" }, origin: guess });
-    labels.push(`question "${q.text}"`);
-    if (q.about !== undefined) {
-      out.push({ op: "link.add", kind: "about", from: ref, to: q.about, origin: guess });
-      labels.push(`question "${q.text}" (about)`);
-    }
+    entries.push({ item: q.item, change: { op: "part.add", ref, kind: "question", title: text,
+      body: { text, proposedAnswer: q.proposedAnswer, cases: q.cases, status: "open" }, origin: guess } });
+    if (q.about !== undefined) entries.push({ item: q.item, change: { op: "link.add", kind: "about", from: ref, to: q.about, origin: guess } });
   }
 
   // A contradiction whose sides equal an OPEN one's (this spec's, or one added earlier in this answer) is not stored
@@ -201,28 +392,30 @@ function build(answer: ModelReply, ctx: {
     if (p.kind !== "contradiction" || p.body.status !== "open") continue;
     holding.set(sidesKey(ctx.links.filter((l) => l.kind === "conflicts" && l.fromKey === p.key).map((l) => l.toKey)), p.key);
   }
-  const contradictionRefs: string[] = [];
+  const contradictionRefs: Plan["contradictionRefs"] = [];
+  const definedBy = new Map<string, string>(); // `$srvc` ref → the item that adds it, so a repeat in this answer lives or dies with it
   // Rule 6: at most 5 contradictions per round, each between at most 10 keys (the rest is not stored).
   for (const [k, c] of answer.contradictions.slice(0, MAX_CONTRADICTIONS).map((c) => ({ ...c, between: c.between.slice(0, MAX_BETWEEN) })).entries()) {
-    if (c.between.length === 0) return { ok: false, error: `contradictions[${k}]: between is empty` };
-    const unknown = c.between.find((b) => !known(b));
-    if (unknown) return { ok: false, error: `contradictions[${k}]: "${unknown}" is not a part or a $ref of this answer` };
+    const item = `contradictions[${k}]`;
+    const refuse = (reason: ItemReason, detail: string, ref: string | null = null) =>
+      refused.push({ item, op: "part.add", kind: "contradiction", ref, key: null, title: short(c.note, MAX_TITLE_CHARS), reason, detail: detail.slice(0, MAX_DETAIL_CHARS) });
+    if (c.between.length === 0) { refuse("invalid_change", "between is empty"); continue; }
+    const bad = c.between.map((b) => pointsAt(b, "between")).find((b) => b !== null);
+    if (bad) { refuse(bad.reason, bad.detail, bad.ref); continue; }
     if (c.sourceId !== undefined && !ctx.sources.some((s) => s.id === c.sourceId)) {
-      return { ok: false, error: `contradictions[${k}]: sourceId "${c.sourceId}" is not a source of this project` };
+      refuse("invalid_change", `sourceId "${c.sourceId}" is not a source of this project`);
+      continue;
     }
     const same = holding.get(sidesKey(c.between));
-    if (same !== undefined) { contradictionRefs.push(same); continue; }
+    if (same !== undefined) { contradictionRefs.push({ item: definedBy.get(same) ?? item, ref: same }); continue; }
     const ref = `$srvc${k + 1}`;
     holding.set(sidesKey(c.between), ref);
-    contradictionRefs.push(ref);
-    out.push({ op: "part.add", ref, kind: "contradiction", title: c.note, origin: guess, body: {
+    definedBy.set(ref, item);
+    contradictionRefs.push({ item, ref });
+    entries.push({ item, change: { op: "part.add", ref, kind: "contradiction", title: c.note, origin: guess, body: {
       note: c.note, ...(c.sourceId ? { sourceId: c.sourceId } : {}), ...(c.quote ? { quote: c.quote } : {}),
-    } });
-    labels.push(`contradictions[${k}]`);
-    for (const b of c.between) {
-      out.push({ op: "link.add", kind: "conflicts", from: ref, to: b, origin: guess });
-      labels.push(`contradictions[${k}] (between ${b})`);
-    }
+    } } });
+    for (const b of c.between) entries.push({ item, change: { op: "link.add", kind: "conflicts", from: ref, to: b, origin: guess } });
   }
   // A-R4: a suggestion is kept only for a live open question with no proposed answer that this round does not close.
   // Status and origin stay; the answer is marked as ours. Anything else is dropped silently.
@@ -233,10 +426,9 @@ function build(answer: ModelReply, ctx: {
     if (!q || q.kind !== "question" || q.body.status !== "open" || String(q.body.proposedAnswer ?? "").trim()) continue;
     if (closing.has(s.key) || suggested.has(s.key) || !s.proposedAnswer.trim()) continue;
     suggested.add(s.key);
-    out.push({ op: "part.update", key: s.key, body: { ...q.body, proposedAnswer: s.proposedAnswer.trim(), proposedAnswerStamp: "team-proposed" } });
-    labels.push(`suggestions[${i}]`);
+    entries.push({ item: `suggestions[${i}]`, change: { op: "part.update", key: s.key, body: { ...q.body, proposedAnswer: s.proposedAnswer.trim(), proposedAnswerStamp: "team-proposed" } } });
   }
-  return { ok: true, changes: out, labels, questionRefs, contradictionRefs };
+  return { entries, refused, adjusted, questionRefs, contradictionRefs };
 }
 
 // The turn a retry re-asks: the newest user row, whose newest bot row after it is bot_could_not_answer.
@@ -340,110 +532,174 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
     answered: ownAnswers.map(({ part, text }) => ({ key: part.key, text })),
   });
 
+  // `stored` = what the bot row keeps as `round_reason` / `round_note` (REQ-110): the gateway's reason for a bot that could not
+  // answer, a RejectReason (+ note) for a rejected round. `reason` is only the codes-only log line below. `refused` = the
+  // model items left out of a round that was rejected whole (an applied round's come with `applied`).
   const finish = async (status: RoundStatus, reply: string | null, model: string,
-    applied?: Extract<Applied, { status: "applied" }>, reason?: string): Promise<Round> => {
+    applied?: Extract<Applied, { status: "applied" }>, reason?: string, stored?: { reason: string; note?: string }, refused: Refused[] = [],
+    raw?: string): Promise<Round> => {
     // Rule 7: a codes-only line for the two failure outcomes — never a prompt, a reply or document text.
     if (status === "bot_could_not_answer" || status === "changes_rejected") console.error(`[round] ${status} reason=${reason ?? "unknown"}`);
+    const record = applied ? applied.refused : refused.length > 0 ? toRecord(refused) : null;
+    const saved = applied ? applied.saved : record ? 0 : null; // a round rejected whole stored no model item
     // An applied round's bot row was written inside its change-set transaction (TASK-A-023); every other one here.
     const botRowId = applied?.botRowId ?? (await db.insert(messages).values({
       projectId, role: "bot", content: reply ?? "", model, creativity: project.creativity,
       roundStatus: status, changeSetId: null, createdAt: await nextMessageTime(db, projectId, userRow!.createdAt),
+      roundReason: stored?.reason ?? null, roundNote: stored?.note ?? null, roundRefused: record, roundSaved: saved, roundRaw: raw ?? null,
     }).returning())[0]!.id;
     return {
       status, reply, changeSetId: applied?.changeSetId ?? null,
       questions: applied?.questions ?? [], contradictions: applied?.contradictions ?? [],
       failedSources, messageIds: [userRow!.id, botRowId],
+      reason: stored?.reason ?? null, note: stored?.note ?? null, refused: record, saved, adjusted: applied?.adjusted ?? null,
     };
   };
-  const ask = (messagesToSend: ChatMessage[]) =>
-    gateway.chat({ model: project.model, creativity: project.creativity, messages: messagesToSend });
+  // E12: only the round's first call may take the longer first-answer limit; the re-ask and the correction keep the normal one.
+  const ask = (messagesToSend: ChatMessage[], firstAnswer = false) =>
+    gateway.chat({ model: project.model, creativity: project.creativity, messages: messagesToSend }, ...(firstAnswer ? [{ firstAnswer: true }] as const : []));
   const modelOf = (r: { provider: string; model: string }) => `${r.provider}/${r.model}`;
-
-  // `bot` = the bot row written with the set: an answered round, or (D-023) a failed one that still keeps decisions.
-  const applyAnswer = async (answer: ModelReply, botModel: string,
-    bot: { status: RoundStatus; reply: string | null } = { status: "applied", reply: answer.reply }): Promise<Applied> => {
-    const built = build(answer, { parts: spec.parts, links: spec.links, sources: srcRows, today: opts.today, message,
+  // `renamed` = the E11 renames of the parse this answer came from; they sit beside E8's in the plan's adjustments.
+  const planOf = (answer: ModelReply, renamed: Adjusted[] = []) => {
+    const plan = build(answer, { parts: spec.parts, links: spec.links, sources: srcRows, today: opts.today, message,
       accepted, answered: ownAnswers, parked });
-    if (!built.ok) return { status: "invalid", error: built.error };
-    if (built.changes.length === 0) return { status: "no_changes", contradictions: built.contradictionRefs };
-    try {
-      let botRowId = "";
-      // The bot row goes in the change set's own transaction: a set never lands without its reply (rule 8).
-      const { changeSetId, keys } = await applyChangeSet(db, projectId, { cause: { kind: "message", ref: userRow!.id }, changes: built.changes }, {
-        by: opts.by, // REQ-103: the change set carries the name of the person who sent the round
-        inTx: async (tx, r) => {
-          const [botRow] = await tx.insert(messages).values({
-            projectId, role: "bot", content: bot.reply ?? "", model: botModel, creativity: project.creativity,
-            roundStatus: bot.status, changeSetId: r.changeSetId, createdAt: await nextMessageTime(tx, projectId, userRow!.createdAt),
-          }).returning();
-          botRowId = botRow!.id;
-        },
-      });
-      appliedChangeSet = changeSetId;
-      const keyOf = (r: string) => {
-        const key = keys[r];
-        if (!key) throw new Error(`integrity: change set ${changeSetId} returned no key for ${r}`);
-        return key;
-      };
-      return { status: "applied", changeSetId, botRowId, questions: built.questionRefs.map(keyOf), contradictions: built.contradictionRefs.map((r) => (r.startsWith("$") ? keyOf(r) : r)) };
-    } catch (e) {
-      if (!(e instanceof ValidationError)) throw e;
-      const label = e.index === null ? "the answer" : built.labels[e.index] ?? `change ${e.index}`;
-      // A change the server made itself (an accepted question) failing is our bug, not the model's: let it be a 500.
-      if (label.startsWith("server:")) throw new Error(`integrity: a server-made change was refused (${label}): ${e.message}`);
-      return { status: "invalid", error: `${label}: ${e.message}` };
+    return renamed.length > 0 ? { ...plan, adjusted: [...renamed, ...plan.adjusted] } : plan;
+  };
+
+  // `bot` = the bot row written with the set: an answered round, or (D-023) a failed one that still keeps decisions
+  // (`carried` = the refused items to record on it). SPEC-105 E5: if the store refuses a change (`ValidationError(index)`) the
+  // model item it came from is dropped, with everything that names it, and the rest is applied again — no new gateway call.
+  const applyAnswer = async (plan: Plan, botModel: string,
+    bot: { status: RoundStatus; reply: string | null; reason?: string; note?: string; raw?: string } = { status: "applied", reply: null },
+    carried: Refused[] = []): Promise<Applied> => {
+    let entries = plan.entries;
+    const refused = [...plan.refused, ...carried];
+    // The round's one code, for when nothing of the model's answer is left: the first refusal that was not a knock-on.
+    const refusal = (): Refusal => {
+      const root = refused.find((r) => r.reason !== "depends_on_refused") ?? refused[0]!;
+      const reason: RejectReason = root.reason === "unknown_kind" || root.reason === "needs_user_words" ? root.reason : "invalid_change";
+      return { error: `${root.item}: ${root.detail}`, reason, ...(root.note !== undefined ? { note: root.note } : {}) };
+    };
+    for (;;) {
+      if (bot.status === "applied" && refused.length > 0 && !entries.some((e) => !isServer(e))) return { status: "invalid", ...refusal(), refused };
+      if (entries.length === 0) return { status: "no_changes", contradictions: plan.contradictionRefs.filter((r) => !r.ref.startsWith("$")).map((r) => r.ref) };
+      try {
+        let botRowId = "";
+        // The bot row goes in the change set's own transaction: a set never lands without its reply (rule 8).
+        const { changeSetId, keys } = await applyChangeSet(db, projectId, { cause: { kind: "message", ref: userRow!.id }, changes: entries.map((e) => e.change) }, {
+          by: opts.by, // REQ-103: the change set carries the name of the person who sent the round
+          inTx: async (tx, r) => {
+            const [botRow] = await tx.insert(messages).values({
+              // E5c: when anything was left out, the model's words are not shown (they may call it saved).
+              projectId, role: "bot", content: refused.length > 0 ? "" : bot.reply ?? "", model: botModel, creativity: project.creativity,
+              roundStatus: bot.status, changeSetId: r.changeSetId, createdAt: await nextMessageTime(tx, projectId, userRow!.createdAt),
+              roundReason: bot.reason ?? null, roundNote: bot.note ?? null, roundRefused: refused.length > 0 ? toRecord(refused) : null, roundSaved: refused.length > 0 ? savedItems(entries) : null,
+              roundAdjusted: adjustedRecord(plan.adjusted, entries), roundRaw: bot.raw ?? null,
+            }).returning();
+            botRowId = botRow!.id;
+          },
+        });
+        appliedChangeSet = changeSetId;
+        const keyOf = (r: string) => {
+          const key = keys[r];
+          if (!key) throw new Error(`integrity: change set ${changeSetId} returned no key for ${r}`);
+          return key;
+        };
+        const stored = new Set(entries.map((e) => e.item));
+        return {
+          status: "applied", changeSetId, botRowId, refused: refused.length > 0 ? toRecord(refused) : null, saved: refused.length > 0 ? savedItems(entries) : null, adjusted: adjustedRecord(plan.adjusted, entries),
+          questions: plan.questionRefs.filter((r) => stored.has(r.item)).map((r) => keyOf(r.ref)),
+          contradictions: plan.contradictionRefs.filter((r) => !r.ref.startsWith("$") || stored.has(r.item)).map((r) => (r.ref.startsWith("$") ? keyOf(r.ref) : r.ref)),
+        };
+      } catch (e) {
+        if (!(e instanceof ValidationError)) throw e;
+        const bad = e.index === null ? undefined : entries[e.index];
+        if (!bad) {
+          refused.push({ item: "answer", op: null, kind: null, ref: null, key: null, title: null, reason: "invalid_change", detail: e.message.slice(0, MAX_DETAIL_CHARS) });
+          return { status: "invalid", ...refusal(), refused };
+        }
+        // A change the server made itself (an accepted question) failing is our bug, not the model's: let it be a 500.
+        if (isServer(bad)) throw new Error(`integrity: a server-made change was refused (${bad.item}): ${e.message}`);
+        const gone = entries.filter((x) => x.item === bad.item);
+        refused.push(describe(bad.item, gone[0]!.change as Record<string, unknown>, "invalid_change", e.message));
+        const next = cascade(entries.filter((x) => x.item !== bad.item),
+          new Set(gone.flatMap((x) => (x.change.op === "part.add" ? [x.change.ref] : []))));
+        entries = next.kept;
+        refused.push(...next.dropped);
+      }
     }
   };
 
   // D-023: the bot failed, but what the user decided this turn (accept · answers · park) is still applied — one set,
   // caused by the user row, with the failure's bot row. A turn with no decisions changes nothing, as before.
   const decided = accepted.length + ownAnswers.length + parked.length > 0;
-  const fail = async (status: "bot_could_not_answer" | "changes_rejected", reply: string | null, model: string, reason: string) => {
-    if (!decided) return finish(status, reply, model, undefined, reason);
-    const kept = await applyAnswer(NO_REPLY, model, { status, reply });
+  // REQ-110 E2: a rejected round never shows the model's words (they were written as though the changes would land, so they say
+  // "saved"). It keeps a code instead. A bot that could not answer keeps the gateway's reason (E4). `refusal` = the rejected
+  // round's code, from the refusal that ended it; `refused` = the model items left out (E6).
+  const fail = async (status: "bot_could_not_answer" | "changes_rejected", reply: string | null, model: string, reason: string,
+    refusal?: { reason: RejectReason; note?: string }, refused: Refused[] = [], extra: { note?: string; raw?: string } = {}) => {
+    const shown = status === "changes_rejected" ? null : reply;
+    // E10: a bot that could not answer may carry a note (the later failure) and the raw unreadable reply.
+    const stored = status === "changes_rejected" ? (refusal ?? { reason: "invalid_change" as const }) : { reason, ...(extra.note !== undefined ? { note: extra.note } : {}) };
+    if (!decided) return finish(status, shown, model, undefined, reason, stored, refused, extra.raw);
+    const kept = await applyAnswer(planOf(NO_REPLY), model, { status, reply: shown, reason: stored.reason, ...("note" in stored && stored.note !== undefined ? { note: stored.note } : {}), ...(extra.raw !== undefined ? { raw: extra.raw } : {}) }, refused);
     if (kept.status !== "applied") throw new Error(`integrity: the user's decisions did not apply (${kept.status})`);
-    return finish(status, reply, model, kept, reason);
+    return finish(status, shown, model, kept, reason, stored);
   };
 
   // A-R3: a round that only parks has nothing to ask — it applies the server's changes with no model call.
   if (message === undefined && accept.length === 0 && answers.length === 0) {
-    const parkedOnly = await applyAnswer(NO_REPLY, project.model);
+    const parkedOnly = await applyAnswer(planOf(NO_REPLY), project.model);
     if (parkedOnly.status !== "applied") throw new Error(`integrity: a park-only round did not apply (${parkedOnly.status})`);
     return finish("applied", null, project.model, parkedOnly);
   }
 
-  // (1) the round · (2) once more only if (1) is not our protocol · (3) one correction only if the change set is invalid.
+  // (1) the round · (2) once more only if (1) is not our protocol · (3) one correction only if the server left items out.
   // A transport failure has already been retried inside the client (R8), so it ends the round.
-  const first = await ask(request);
+  const first = await ask(request, true);
   if (!first.ok) return fail("bot_could_not_answer", null, project.model, first.reason);
   let answered = first;
   let parsed = parseReply(first.content);
   if (!parsed.ok) {
+    // E10: the reason is the FIRST failure (the reply was not our protocol); a re-ask that also fails goes in the note. The
+    // unreadable reply is kept for the team (a NUL cannot be stored in text).
+    const raw = first.content.replaceAll("\u0000", "").slice(0, MAX_RAW_CHARS);
     const again = await ask(request);
-    if (!again.ok) return fail("bot_could_not_answer", null, project.model, again.reason);
+    if (!again.ok) return fail("bot_could_not_answer", null, project.model, "protocol", undefined, [], { note: `then ${again.reason}`, raw });
     answered = again;
     parsed = parseReply(again.content);
-    if (!parsed.ok) return fail("bot_could_not_answer", null, modelOf(again), "protocol");
+    if (!parsed.ok) return fail("bot_could_not_answer", null, modelOf(again), "protocol", undefined, [], { raw });
   }
 
-  let result = await applyAnswer(parsed.reply, modelOf(answered));
+  let plan = planOf(parsed.reply, parsed.adjusted);
   let reply = parsed.reply.reply;
-  if (result.status === "invalid") {
+  // Why the correction did not replace the first answer, if it was asked for and failed (E5b): that answer is then pruned and applied.
+  let correctionFailed: string | null = null;
+  if (plan.refused.length > 0) {
+    const named = plan.refused.filter((r) => r.reason !== "depends_on_refused").slice(0, 5).map((r) => `${r.item}: ${r.detail}`).join("; ");
     const correction = await ask([...request,
       { role: "assistant", content: answered.content },
-      { role: "user", content: `The server refused that answer: ${result.error}. Reply again with the whole JSON, corrected. Nothing was applied.` }]);
-    if (!correction.ok) return fail("changes_rejected", reply, modelOf(answered), correction.reason);
-    const fixed = parseReply(correction.content);
-    if (!fixed.ok) return fail("changes_rejected", reply, modelOf(correction), "protocol");
-    answered = correction;
-    reply = fixed.reply.reply;
-    result = await applyAnswer(fixed.reply, modelOf(correction));
-    if (result.status === "invalid") return fail("changes_rejected", reply, modelOf(correction), "validation");
+      { role: "user", content: `The server refused that answer: ${named}. Reply again with the whole JSON, corrected. Nothing was applied.` }]);
+    const fixed = correction.ok ? parseReply(correction.content) : null;
+    if (correction.ok && fixed?.ok) {
+      answered = correction;
+      reply = fixed.reply.reply;
+      plan = planOf(fixed.reply, fixed.adjusted);
+    } else {
+      correctionFailed = correction.ok ? "protocol" : correction.reason;
+    }
   }
-  if (result.status === "applied") return finish("applied", reply, modelOf(answered), result);
+  const result = await applyAnswer(plan, modelOf(answered), { status: "applied", reply });
+  if (result.status === "invalid") {
+    // Nothing of the answer could be stored. If the correction itself failed on protocol, that is the code; else the refusal's.
+    const code = correctionFailed === "protocol" ? { reason: "protocol" as const } : { reason: result.reason, ...(result.note !== undefined ? { note: result.note } : {}) };
+    return fail("changes_rejected", reply, modelOf(answered), correctionFailed ?? "validation", code, result.refused);
+  }
+  // E5c: something stored → applied; when anything was left out the model's reply is not shown (its row says "").
+  if (result.status === "applied") return finish("applied", result.refused ? null : reply, modelOf(answered), result);
   // nothing new was stored, but a repeated contradiction still names the part that holds it (TASK-A-065)
   const none = await finish("no_changes", reply, modelOf(answered));
-  return result.status === "no_changes" ? { ...none, contradictions: result.contradictions } : none;
+  return { ...none, contradictions: result.contradictions };
   } catch (e) {
     // An unexpected fault (not a normal round outcome): the round never happened, so its user row goes — unless a
     // change set already points at it as its cause (then it stays, for history; SA question Q2).
@@ -459,5 +715,7 @@ export async function listMessages(db: Db, projectId: string, limit: number): Pr
   return rows.reverse().map((r) => ({
     id: r.id, role: r.role as Message["role"], content: r.content, model: r.model, creativity: r.creativity,
     roundStatus: r.roundStatus, changeSetId: r.changeSetId, createdAt: r.createdAt.toISOString(),
+    roundReason: r.roundReason, roundNote: r.roundNote, roundRefused: (r.roundRefused as RefusedRecord | null) ?? null, roundSaved: r.roundSaved,
+    roundAdjusted: (r.roundAdjusted as AdjustedRecord | null) ?? null, roundRaw: r.roundRaw,
   }));
 }

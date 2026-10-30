@@ -120,6 +120,18 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   // REQ-103: who sent a `user` row; null on bot/caw rows and on rows from before it.
   by: text("by"),
+  // REQ-110: why a bot row is `changes_rejected` / `bot_could_not_answer` (a code), and a short detail (≤ 60 chars, e.g. a
+  // kind name, never document text). Null on every other row and on rows from before it.
+  roundReason: text("round_reason"),
+  roundNote: text("round_note"),
+  // REQ-110 round 2 (SPEC-105 E6): every model item the server did not store, one object each; null when nothing was refused.
+  roundRefused: jsonb("round_refused"),
+  // …and how many model items (changes / questions / contradictions) the same round did store; set whenever round_refused is.
+  roundSaved: integer("round_saved"),
+  // REQ-110 round 3 (SPEC-105 E8–E10): what the server adjusted in the items it stored (jsonb list), and the first 4000
+  // characters of a reply it could not read (for the team; never shown in the UI).
+  roundAdjusted: jsonb("round_adjusted"),
+  roundRaw: text("round_raw"),
 });
 
 // REQ-005: the understanding quiz. `base_change_sets` = the project's change sets (none of them this quiz's) at start.

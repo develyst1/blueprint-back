@@ -19,7 +19,8 @@ export type ModelsResult =
 
 export type Gateway = {
   listModels(): Promise<ModelsResult>;
-  chat(request: { model: string; creativity: number; messages: ChatMessage[] }): Promise<ChatResult>;
+  // `firstAnswer` (SPEC-105 E12): the interview round's first call, which may wait `firstAnswerTimeoutMs` instead of `timeoutMs`.
+  chat(request: { model: string; creativity: number; messages: ChatMessage[] }, opts?: { firstAnswer?: boolean }): Promise<ChatResult>;
 };
 
 // The gateway could not be reached or answered wrongly; the HTTP layer answers 503 gateway_unavailable.
@@ -68,16 +69,17 @@ async function readCapped(res: Response, max: number): Promise<Uint8Array | null
 // `retry` (default on): a failed chat is tried once more (R8). The live smoke turns it off — one POST /chat per run
 // is the decided budget (DECISIONS 2026-10-09).
 export function createGateway(
-  options: { baseUrl?: string; fetch?: GatewayFetch; timeoutMs?: number; retry?: boolean } = {},
+  options: { baseUrl?: string; fetch?: GatewayFetch; timeoutMs?: number; firstAnswerTimeoutMs?: number; retry?: boolean } = {},
 ): Gateway {
   const base = (options.baseUrl || process.env.GATEWAY_URL || "https://ai.develyst.online").replace(/\/$/, "");
   const doFetch: GatewayFetch = options.fetch ?? ((url, init) => fetch(url, init));
   const timeoutMs = options.timeoutMs ?? 90_000;
+  const firstAnswerTimeoutMs = options.firstAnswerTimeoutMs ?? 180_000;
   const retry = options.retry ?? true;
 
-  // One request, whole body read, inside the timeout. Never throws.
-  async function call(path: string, init?: RequestInit): Promise<Got> {
-    const signal = AbortSignal.timeout(timeoutMs);
+  // One request, whole body read, inside the timeout (`limitMs`, default `timeoutMs`). Never throws.
+  async function call(path: string, init?: RequestInit, limitMs = timeoutMs): Promise<Got> {
+    const signal = AbortSignal.timeout(limitMs);
     const timedOut = new Promise<never>((_, reject) =>
       signal.addEventListener("abort", () => reject(new DOMException("timeout", "TimeoutError")), { once: true }));
     let res: Response;
@@ -94,8 +96,8 @@ export function createGateway(
     try { return { ok: true, json: JSON.parse(text) }; } catch { return { ok: false, reason: "not_json" }; }
   }
 
-  async function chatOnce(body: unknown): Promise<ChatResult> {
-    const got = await call("/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  async function chatOnce(body: unknown, limitMs: number): Promise<ChatResult> {
+    const got = await call("/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, limitMs);
     if (!got.ok) return got;
     const r = got.json as { success?: unknown; data?: { content?: unknown; provider?: unknown; model?: unknown; usage?: unknown } };
     if (r?.success !== true) return { ok: false, reason: "not_success" };
@@ -114,10 +116,13 @@ export function createGateway(
       if (!models || typeof models !== "object" || !Object.values(models).every(isList)) return { ok: false, reason: "not_json" };
       return { ok: true, models: models as Record<string, string[]>, tiers: [...TIERS] };
     },
-    async chat({ model, creativity, messages }) {
+    async chat({ model, creativity, messages }, opts) {
       const body = { ...modelRequest(model), temperature: creativity, max_tokens: MAX_TOKENS, messages };
-      const first = await chatOnce(body);
-      return first.ok || !retry ? first : chatOnce(body); // retry once, then the second answer stands (R8)
+      const limitMs = opts?.firstAnswer ? firstAnswerTimeoutMs : timeoutMs;
+      const first = await chatOnce(body, limitMs);
+      // retry once, then the second answer stands (R8) — except after a timeout (REQ-110 E3): the caller already waited the whole
+      // timeout, a second try would double it, and "too slow" is told to the user, who can retry or pick a faster model.
+      return first.ok || !retry || first.reason === "timeout" ? first : chatOnce(body, limitMs);
     },
   };
 }

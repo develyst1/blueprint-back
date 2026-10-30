@@ -1,12 +1,58 @@
 // What the model is sent for one round (SPEC-A-003 § Interview round, context 1–7). Pure: no I/O.
 // Every block is cut to its cap, so the request stays bounded however long the chat or the spec grows (AC-11).
+import type { z } from "zod";
 import type { ChatMessage } from "../gateway/client";
+import { LINK_KINDS, PART_KINDS, type PartKind } from "../spec/registry";
 import type { Link, Part, StuckItem } from "../spec/types";
 
 export const CAPS = { spec: 8_000, stuck: 2_000, decisions: 2_000, excerpts: 6_000, accepted: 2_000, unproposed: 2_000, answered: 4_000 } as const;
 export const HISTORY = 6;
 const CHUNK = 800;
 const KIND_ORDER = ["work", "step", "interaction", "screen", "api", "data", "role", "system", "decision", "question", "contradiction"];
+
+// What the model may add itself (Provenance guard rule 4): questions and contradictions have their own channels, and a
+// requirement is typed in by a person (SPEC-104 D6). Here, not in round.ts, so the prompt below is built from the same list.
+export const MODEL_KINDS = new Set(["work", "step", "interaction", "role", "screen", "api", "system", "data", "decision"]);
+
+// SPEC-105 E7: a field's type as the model should write it, read from its zod schema. Objects inside a list print their field
+// names only (`[{ name, label? }]`); anything the registry does not constrain prints `any`.
+export const shapeOf = (schema: z.ZodType) => ((schema as unknown as { shape: Record<string, z.ZodType> }).shape);
+export const optionalField = (schema: z.ZodType) => schema.safeParse(undefined).success;
+function typeText(schema: z.ZodType): string {
+  const def = (schema as unknown as { def: { type: string; innerType?: z.ZodType; element?: z.ZodType } }).def;
+  switch (def.type) {
+    case "optional": case "default": case "nullable": return typeText(def.innerType!);
+    case "string": case "boolean": case "number": return def.type;
+    case "enum": return (schema as unknown as { options: string[] }).options.map((o) => JSON.stringify(o)).join("|");
+    case "array": {
+      const element = def.element!;
+      const inner = (element as unknown as { def: { type: string } }).def.type;
+      return inner === "object"
+        ? `[{ ${Object.entries(shapeOf(element)).map(([n, s]) => `${n}${optionalField(s) ? "?" : ""}`).join(", ")} }]`
+        : `${typeText(element)}[]`;
+    }
+    default: return "any";
+  }
+}
+
+// SPEC-105 E1: the kinds the server accepts, generated from the registry so the prompt can never drift from it. A body field
+// is optional (`?`) when it accepts `undefined` (optional or defaulted); the rest are required. E7 adds each field's type.
+export function kindsBlock(): string {
+  const fields = (kind: PartKind) => Object.entries(shapeOf(PART_KINDS[kind].body as unknown as z.ZodType))
+    .map(([name, schema]) => `${name}${optionalField(schema) ? "?" : ""}: ${typeText(schema)}`).join(", ");
+  const partLines = (Object.keys(PART_KINDS) as PartKind[]).filter((k) => MODEL_KINDS.has(k)).map((k) => `- ${k} {${fields(k) ? ` ${fields(k)} ` : ""}}`);
+  const side = (s: readonly string[] | "any") => (s === "any" ? "any" : s.join("|"));
+  const linkLines = Object.entries(LINK_KINDS).map(([k, r]) =>
+    `- ${k}: ${side(r.from)} → ${side(r.to)}${r.ordered ? " [ordered]" : ""}${r.labelled ? " [labelled]" : ""}`);
+  return [
+    "kind ที่ใช้ได้กับ part.add (ใน { } คือฟิลด์ของ body: ชื่อ: ชนิด, ? = ไม่บังคับ):",
+    ...partLines,
+    "kind ที่ใช้ได้กับ link.add (from → to):",
+    ...linkLines,
+    "ref คือ $ ตามด้วย a-z A-Z 0-9 _ เท่านั้น เช่น $step_view (ห้ามมี - หรือช่องว่าง)",
+    "ห้ามใช้ kind อื่นนอกจากนี้ — ถ้าไม่เข้ากับ kind ไหน ให้ถามเป็น question",
+  ].join("\n");
+}
 
 export const SYSTEM_PROMPT = [
   "คุณคือผู้ช่วยเก็บสเปกของ Blueprint คุยกับผู้ใช้เป็นภาษาไทย สุภาพ กระชับ",
@@ -15,10 +61,11 @@ export const SYSTEM_PROMPT = [
   "ทุกคำถามต้องมี proposedAnswer ที่ไม่ว่าง",
   "ตอบเป็น JSON ก้อนเดียวเท่านั้น ห้ามมีข้อความอื่น รูปแบบ:",
   '{ "reply": string, "changes": [ { "change": <Change ไม่มี origin>, "saidBy": "user" | "inferred" | { "source": "<source id>" }, "sure": boolean, "ifUnsure"?: { "text": string, "proposedAnswer": string, "cases": string[] } } ], "questions": [ { "text": string, "proposedAnswer": string, "cases": string[], "about"?: "<part key หรือ $ref>" } ], "contradictions": [ { "note": string, "between": ["<part key>", …], "sourceId"?: string, "quote"?: string } ] }',
-  "Change คือ part.add (ref เช่น $a, kind, title, body) · part.update (key, title?, body?) · part.remove (key) · link.add (kind, from, to, position?, label?) · link.update (id, position?, label?) · link.remove (id)",
+  "Change คือ object ที่มีช่อง \"op\" (ห้ามใช้ชื่ออื่น เช่น type) — op คือ part.add (ref เช่น $a, kind, title, body) · part.update (key, title?, body?) · part.remove (key) · link.add (kind, from, to, position?, label?) · link.update (id, position?, label?) · link.remove (id)",
   "saidBy: user = ผู้ใช้พูดเอง · inferred = คุณอนุมานเอง · source = มาจากเอกสารนั้น",
   "ทุก work ต้องมี body.goal: ย่อหน้าเดียว (ไม่เกิน 400 ตัวอักษร) บอกว่าผู้ใช้ต้องการอะไร เขียนเป็นความเข้าใจของเรา และแก้ด้วย part.update เมื่อความเข้าใจเปลี่ยน · ทุก role ต้องมี body.duty: บทบาทนี้ทำอะไรในงานนี้ บรรทัดเดียว (ไม่เกิน 120 ตัวอักษร)",
   'คำถามที่ยังเปิดและยังไม่มีคำตอบที่เสนอ: เสนอคำตอบได้ใน "suggestions": [ { "key": "<question key>", "proposedAnswer": string } ] (ไม่เกิน 5) — ห้ามแก้คำถามผ่าน changes',
+  kindsBlock(),
 ].join("\n");
 
 const HEADINGS = {

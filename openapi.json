@@ -2,6 +2,80 @@
   "components": {
     "parameters": {},
     "schemas": {
+      "AdjustedItem": {
+        "anyOf": [
+          {
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "from": {
+                "type": "string"
+              },
+              "item": {
+                "type": "string"
+              },
+              "key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "to": {
+                "type": "string"
+              },
+              "what": {
+                "enum": [
+                  "ref_renamed",
+                  "body_defaulted",
+                  "wrapped_in_list",
+                  "field_dropped",
+                  "op_renamed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "item",
+              "what",
+              "title",
+              "key",
+              "ref"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "item": {
+                "enum": [
+                  "more"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "item",
+              "count"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "Cause": {
         "properties": {
           "kind": {
@@ -371,6 +445,68 @@
           "undoable"
         ],
         "type": "object"
+      },
+      "ChatMessage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Message"
+          },
+          {
+            "properties": {
+              "roundAdjusted": {
+                "items": {
+                  "$ref": "#/components/schemas/AdjustedItem"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "roundNote": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roundRaw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roundReason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roundRefused": {
+                "items": {
+                  "$ref": "#/components/schemas/RefusedItem"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "roundSaved": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "roundReason",
+              "roundNote",
+              "roundRefused",
+              "roundSaved",
+              "roundAdjusted",
+              "roundRaw"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "Error": {
         "properties": {
@@ -1323,8 +1459,99 @@
         ],
         "type": "object"
       },
+      "RefusedItem": {
+        "anyOf": [
+          {
+            "properties": {
+              "detail": {
+                "type": "string"
+              },
+              "item": {
+                "type": "string"
+              },
+              "key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "op": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "unknown_kind",
+                  "needs_user_words",
+                  "invalid_change",
+                  "depends_on_refused"
+                ],
+                "type": "string"
+              },
+              "ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "item",
+              "op",
+              "kind",
+              "ref",
+              "key",
+              "title",
+              "reason",
+              "detail"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "item": {
+                "enum": [
+                  "more"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "item",
+              "count"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "Round": {
         "properties": {
+          "adjusted": {
+            "items": {
+              "$ref": "#/components/schemas/AdjustedItem"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "changeSetId": {
             "type": [
               "string",
@@ -1349,15 +1576,42 @@
             },
             "type": "array"
           },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "questions": {
             "items": {
               "type": "string"
             },
             "type": "array"
           },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refused": {
+            "items": {
+              "$ref": "#/components/schemas/RefusedItem"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "reply": {
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "saved": {
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -1378,7 +1632,12 @@
           "questions",
           "contradictions",
           "failedSources",
-          "messageIds"
+          "messageIds",
+          "reason",
+          "note",
+          "refused",
+          "saved",
+          "adjusted"
         ],
         "type": "object"
       },
@@ -2728,7 +2987,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Message"
+                    "$ref": "#/components/schemas/ChatMessage"
                   },
                   "type": "array"
                 }
