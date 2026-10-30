@@ -4,7 +4,8 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client";
 import { projects } from "../db/schema";
-import type { ChatMessage, Gateway } from "../gateway/client";
+import type { ChatMessage, ChatResult, Gateway } from "../gateway/client";
+import { type Call, modelFor } from "../gateway/models";
 import { capped } from "../interview/context";
 import { NotFound } from "../spec/errors";
 import { loadSpec } from "../spec/store";
@@ -39,7 +40,7 @@ function parse(content: string): z.infer<typeof Reply> | null {
   return r.success ? r.data : null;
 }
 
-export type Answered = { status: "answered" | "failed"; answer: string | null; notInSpec: boolean; parts: string[]; model: string };
+export type Answered = { status: "answered" | "failed"; answer: string | null; notInSpec: boolean; parts: string[]; model: string; calls: Call[] };
 
 export async function answerQuestion(db: Db, gateway: Gateway, projectId: string, question: string): Promise<Answered> {
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
@@ -50,18 +51,32 @@ export async function answerQuestion(db: Db, gateway: Gateway, projectId: string
     { role: "system", content: `## สเปก\n${specBlock(spec.parts, spec.links)}` },
     { role: "user", content: question },
   ];
+  const calls: Call[] = []; // REQ-115 G4: every gateway call of this answer, in order
   const failed = (reason: string): Answered => {
     console.error(`[quiz] failed reason=${reason}`); // codes only — never the question, the spec or a reply
-    return { status: "failed", answer: null, notInSpec: false, parts: [], model: project.model };
+    return { status: "failed", answer: null, notInSpec: false, parts: [], model: project.model, calls };
   };
-  const ask = () => gateway.chat({ model: project.model, creativity: project.creativity, messages: request });
+  const one = async (step: Call["step"], model: string, fallback: boolean): Promise<ChatResult> => {
+    const r = await gateway.chat({ model, creativity: project.creativity, messages: request });
+    const ok = r.ok && parse(r.content) !== null;
+    calls.push({ step, weight: "light", asked: model, model: r.ok ? `${r.provider}/${r.model}` : null, fallback, ok, reason: r.ok ? (ok ? null : "protocol") : r.reason });
+    return r;
+  };
+  // REQ-115 G2/G3: a quiz call is light; if it fails or its reply is unreadable it is asked once more on the project's model
+  // (never when light IS the project's model).
+  const ask = async (step: Call["step"]): Promise<ChatResult> => {
+    const asked = modelFor("light", project.model);
+    const light = await one(step, asked, false);
+    if (asked === project.model || (light.ok && parse(light.content))) return light;
+    return one(step, project.model, true);
+  };
 
   // Transport failures were already retried inside the client (R8); a reply that is not our JSON gets one more call.
-  let got = await ask();
+  let got = await ask("answer");
   if (!got.ok) return failed(got.reason);
   let reply = parse(got.content);
   if (!reply) {
-    got = await ask();
+    got = await ask("reask");
     if (!got.ok) return failed(got.reason);
     reply = parse(got.content);
     if (!reply) return failed("protocol");
@@ -70,6 +85,6 @@ export async function answerQuestion(db: Db, gateway: Gateway, projectId: string
   return {
     status: "answered", answer: reply.answer, notInSpec: reply.notInSpec,
     parts: reply.notInSpec ? [] : [...new Set(reply.parts.filter((k) => live.has(k)))], // unknown keys dropped
-    model: `${got.provider}/${got.model}`,
+    model: `${got.provider}/${got.model}`, calls,
   };
 }

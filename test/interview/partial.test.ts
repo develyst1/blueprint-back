@@ -74,7 +74,7 @@ test("dependents: a refused part.add drops the link and the question that name i
   )]);
   const round = await runRound(db, g.gateway, pid, { message: MESSAGE }, { today: TODAY });
   expect(round.status).toBe("applied");
-  expect(g.calls.n).toBe(2); // the refusal asked for the one correction, which repeated the same answer
+  expect(g.calls.n).toBe(3); // the refusal asked for the one (light) correction, which repeated the same answer, so its fallback ran too (REQ-115)
   expect(round.refused!.map((r) => [(r as any).item, (r as any).reason, (r as any).ref])).toEqual([
     ["changes[0]", "unknown_kind", "$s2"], ["changes[2]", "depends_on_refused", "$s2"], ["questions[0]", "depends_on_refused", "$s2"],
   ]);

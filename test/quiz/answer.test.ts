@@ -77,11 +77,13 @@ test("AC-10: every gateway failure leaves a failed item that cannot be marked", 
   const notJson: Answer = () => new Response(readFileSync(GW + "chat-not-json.txt", "utf8"));
   const blank: Answer = () => new Response(readFileSync(GW + "chat-empty-content.json", "utf8"));
   const notProtocol = said("ห้องใหญ่ต้องอนุมัติครับ");
-  // transport failures: the client's call + its retry (2) · not our protocol: one more call (2)
+  // REQ-115: the project is on tier:medium, so the light call (tier:small) has its one fallback on the project's model.
+  // transport failures: light (the client's call + its retry) + the fallback (call + retry) = 4 · not our protocol: the answer
+  // step (light + fallback) and the re-ask step (light + fallback) = 4. Each case queues exactly the 4 it will use.
   const cases: [string, Answer[], number, string][] = [
-    ["gateway down", [throws, throws], 2, "network"], ["HTTP 500", [http500, http500], 2, "http_500"],
-    ["not JSON", [notJson, notJson], 2, "not_json"], ["empty content", [blank, blank], 2, "empty_content"],
-    ["not our protocol", [notProtocol, notProtocol], 2, "protocol"],
+    ["gateway down", [throws, throws, throws, throws], 4, "network"], ["HTTP 500", [http500, http500, http500, http500], 4, "http_500"],
+    ["not JSON", [notJson, notJson, notJson, notJson], 4, "not_json"], ["empty content", [blank, blank, blank, blank], 4, "empty_content"],
+    ["not our protocol", [notProtocol, notProtocol, notProtocol, notProtocol], 4, "protocol"],
   ];
   for (const [label, answers, calls, reason] of cases) {
     logged = [];

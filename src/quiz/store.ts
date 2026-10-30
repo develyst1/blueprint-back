@@ -5,6 +5,7 @@ import { z } from "zod";
 import { recordAudit } from "../audit/events";
 import type { Db } from "../db/client";
 import type { Gateway } from "../gateway/client";
+import type { Call } from "../gateway/models";
 import { changes, changeSets, projects, quizItems, quizzes } from "../db/schema";
 import { AlreadyMarked, NotFound, NotMarkable, QuizClosed, QuizFull, QuizStale, ValidationError } from "../spec/errors";
 import { applyChangeSet, loadSpec } from "../spec/store";
@@ -20,12 +21,14 @@ export type QuizItem = {
   id: string; position: number; question: string; status: "answered" | "failed"; answer: string | null;
   notInSpec: boolean; parts: string[]; mark: "right" | "wrong" | null; note: string | null;
   questionKey: string | null; createdAt: string;
+  calls: Call[] | null; // REQ-115: the gateway calls that made the answer; null on items from before it
 };
 export type Quiz = {
   id: string; createdAt: string; stale: boolean; items: QuizItem[]; right: number; marked: number; score: number | null;
 };
 export type NewItem = {
   question: string; status: "answered" | "failed"; answer: string | null; notInSpec: boolean; parts: string[]; model: string;
+  calls?: Call[] | null;
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -92,6 +95,7 @@ async function toQuiz(q: Db, quiz: QuizRow): Promise<Quiz> {
     id: r.id, position: r.position, question: r.question, status: r.status as QuizItem["status"], answer: r.answer,
     notInSpec: r.notInSpec, parts: r.parts, mark: r.mark as QuizItem["mark"], note: r.note,
     questionKey: r.changeSetId ? keyBySet.get(r.changeSetId) ?? null : null, createdAt: r.createdAt.toISOString(),
+    calls: (r.calls as Call[] | null) ?? null,
   }));
   return { id: quiz.id, createdAt: quiz.createdAt.toISOString(), stale: await isStale(q, quiz), items, ...scoreOf(items) };
 }
@@ -147,7 +151,7 @@ export async function addItem(db: Db, projectId: string, quizId: string, item: N
     const [{ last }] = await tx.select({ last: max(quizItems.position) }).from(quizItems).where(eq(quizItems.quizId, quizId));
     const [row] = await tx.insert(quizItems).values({
       quizId, position: (last ?? 0) + 1, question: question.data, status: item.status, answer: item.answer,
-      notInSpec: item.notInSpec, parts: item.parts, model: item.model,
+      notInSpec: item.notInSpec, parts: item.parts, model: item.model, calls: item.calls ?? null,
     }).returning();
     if (by) {
       await recordAudit(tx, { projectId, by, action: "quiz_ask", entity: `quiz:${quizId}`,

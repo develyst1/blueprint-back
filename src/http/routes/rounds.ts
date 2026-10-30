@@ -28,6 +28,17 @@ const AdjustedItemSchema = z.union([
   z.object({ item: z.literal("more"), count: z.number().int() }),
 ]).openapi("AdjustedItem");
 
+// REQ-115 (SPEC-112 G4): one gateway call of a round or a quiz answer — never a key, never content.
+export const CallSchema = z.object({
+  step: z.enum(["first", "reask", "correction", "answer"]),
+  weight: z.enum(["heavy", "light"]),
+  asked: z.string(),
+  model: z.string().nullable(),
+  fallback: z.boolean(),
+  ok: z.boolean(),
+  reason: z.string().nullable(),
+}).openapi("Call");
+
 const RoundSchema = z.object({
   status: z.enum(["applied", "no_changes", "changes_rejected", "bot_could_not_answer"]),
   reply: z.string().nullable(),
@@ -45,6 +56,8 @@ const RoundSchema = z.object({
   saved: z.number().int().nullable(),
   // What the server adjusted in the items it stored; null when nothing.
   adjusted: z.array(AdjustedItemSchema).nullable(),
+  // Every gateway call of the round, in order; null when it made none.
+  calls: z.array(CallSchema).nullable(),
 }).openapi("Round");
 
 export const MessageSchema = z.object({
@@ -68,6 +81,8 @@ const ChatMessageSchema = MessageSchema.extend({
   roundAdjusted: z.array(AdjustedItemSchema).nullable(),
   // The first 4000 characters of a reply the server could not read — for the team, never for the UI.
   roundRaw: z.string().nullable(),
+  // The gateway calls of the round that wrote this bot row; null on every other row and on older ones.
+  roundCalls: z.array(CallSchema).nullable(),
 }).openapi("ChatMessage");
 
 // Stamps carry the operator's calendar day (Asia/Bangkok), not UTC's.

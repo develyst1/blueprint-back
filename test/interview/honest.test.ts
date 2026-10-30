@@ -77,7 +77,7 @@ test("E2 / AC-3: a model that proposes `feature` (twice) → changes_rejected, n
   const { gateway, calls } = stub([reply([add("feature")])]); // the correction repeats the same answer
   const round = await runRound(db, gateway, pid, { message: MESSAGE }, { today: TODAY });
 
-  expect(calls.n).toBe(2); // the round + its one correction
+  expect(calls.n).toBe(3); // the round + its one (light) correction + that correction's fallback on the project's model (REQ-115)
   expect([round.status, round.reply, round.changeSetId, round.reason, round.note]).toEqual(["changes_rejected", null, null, "unknown_kind", "feature"]);
   const bot = await rowOf(db, round.messageIds[1]!);
   expect([bot.roundStatus, bot.content, bot.roundReason, bot.roundNote]).toEqual(["changes_rejected", "", "unknown_kind", "feature"]);
@@ -113,7 +113,7 @@ test("E2: a correction that is not the JSON → protocol", async () => {
   const { db, pid } = await project();
   const { gateway, calls } = stub([reply([add("feature")]), "ขออภัยครับ ผมจะลองใหม่"]);
   const round = await runRound(db, gateway, pid, { message: MESSAGE }, { today: TODAY });
-  expect(calls.n).toBe(2);
+  expect(calls.n).toBe(3); // the round + the light correction + its fallback (the stub repeats the same non-JSON) — REQ-115
   expect([round.status, round.reply, round.reason, round.note]).toEqual(["changes_rejected", null, "protocol", null]);
   expect(await rowOf(db, round.messageIds[1]!)).toMatchObject({ content: "", roundReason: "protocol" });
 });

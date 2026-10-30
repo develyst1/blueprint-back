@@ -211,10 +211,11 @@ test("AC-10: every gateway failure ends bot_could_not_answer with the spec uncha
   const blank: Answer = () => new Response(recording("chat-empty-content.json"));
   const notProtocol = said("ขอโทษครับ ตอบเป็นข้อความธรรมดา");
   // [case, answers queued, fetch calls expected]: transport failures = the client's 1 call + its 1 retry, no protocol retry;
-  // a reply that is not our protocol = the round call + one protocol retry (each succeeds at transport level).
+  // a reply that is not our protocol = the round call + one protocol retry (each succeeds at transport level) + (REQ-115) that
+  // light re-ask's one fallback on the project's model = 3.
   const cases: [string, Answer[], number][] = [
     ["gateway down", [throws, throws], 2], ["HTTP 500", [http500, http500], 2], ["not JSON", [notJson, notJson], 2],
-    ["empty content", [blank, blank], 2], ["not our protocol", [notProtocol, notProtocol], 2],
+    ["empty content", [blank, blank], 2], ["not our protocol", [notProtocol, notProtocol, notProtocol], 3],
   ];
   for (const [label, answers, calls] of cases) {
     const { db, pid } = await project();
@@ -270,9 +271,9 @@ test("review: correction text names the model's own item; a NUL in the reply is 
   const { db: db2, pid: pid2 } = await project();
   const before = await loadSpec(db2, pid2);
   const nul = said(`{"reply":"ok\\u0000","changes":[],"questions":[],"contradictions":[]}`);
-  const fake2 = fakeGateway([nul, nul]);
+  const fake2 = fakeGateway([nul, nul, nul]);
   const round = await runRound(db2, fake2.gateway, pid2, { message: "สวัสดี" }, { today: TODAY });
-  expect([round.status, fake2.requests.length]).toEqual(["bot_could_not_answer", 2]);
+  expect([round.status, fake2.requests.length]).toEqual(["bot_could_not_answer", 3]); // the round + the light re-ask + its fallback (REQ-115)
   expect(await loadSpec(db2, pid2)).toEqual(before);
 });
 

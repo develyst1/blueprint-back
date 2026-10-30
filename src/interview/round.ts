@@ -3,7 +3,8 @@
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { messages, projects, sources } from "../db/schema";
-import type { ChatMessage, Gateway } from "../gateway/client";
+import type { ChatMessage, ChatResult, Gateway } from "../gateway/client";
+import { type Call, modelFor, type Weight } from "../gateway/models";
 import { NotFound, ValidationError } from "../spec/errors";
 import { isApiPath, LINK_KINDS, PART_KINDS, type PartKind } from "../spec/registry";
 import { applyChangeSet, loadSpec } from "../spec/store";
@@ -60,6 +61,8 @@ export type Round = {
   refused: RefusedRecord | null; saved: number | null; // saved = model items stored, set with `refused`
   /** REQ-110 round 3: what the server adjusted in the items it stored; null when nothing. */
   adjusted: AdjustedRecord | null;
+  /** REQ-115 (SPEC-112 G4): every gateway call of the round, in order; null when the round made none. */
+  calls: Call[] | null;
 };
 export type RoundInput = {
   message?: string; accept?: string[];
@@ -82,6 +85,7 @@ export type Message = {
   roundSaved: number | null; // …and how many model items it did store in that round; null exactly when roundRefused is
   roundAdjusted: AdjustedRecord | null; // REQ-110 round 3; null unless the server adjusted a stored item
   roundRaw: string | null; // REQ-110 round 3: the first 4000 chars of a reply the server could not read; for the team, not the UI
+  roundCalls: Call[] | null; // REQ-115: the gateway calls of the round that wrote this bot row; null on other rows and on older ones
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -552,6 +556,8 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
     .orderBy(desc(messages.createdAt)).limit(HISTORY)).reverse() as { role: "user" | "bot"; content: string }[];
 
   let appliedChangeSet: string | null = null;
+  const calls: Call[] = []; // REQ-115 G4: every gateway call of this round, in order
+  const callsOrNull = () => (calls.length > 0 ? [...calls] : null);
   try {
   const request = buildRequest({
     parts: spec.parts, links: spec.links, stuck: computeStuck(spec), history, message,
@@ -574,18 +580,34 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
     const botRowId = applied?.botRowId ?? (await db.insert(messages).values({
       projectId, role: "bot", content: reply ?? "", model, creativity: project.creativity,
       roundStatus: status, changeSetId: null, createdAt: await nextMessageTime(db, projectId, userRow!.createdAt),
-      roundReason: stored?.reason ?? null, roundNote: stored?.note ?? null, roundRefused: record, roundSaved: saved, roundRaw: raw ?? null,
+      roundReason: stored?.reason ?? null, roundNote: stored?.note ?? null, roundRefused: record, roundSaved: saved, roundRaw: raw ?? null, roundCalls: callsOrNull(),
     }).returning())[0]!.id;
     return {
       status, reply, changeSetId: applied?.changeSetId ?? null,
       questions: applied?.questions ?? [], contradictions: applied?.contradictions ?? [],
-      failedSources, messageIds: [userRow!.id, botRowId],
+      failedSources, messageIds: [userRow!.id, botRowId], calls: callsOrNull(),
       reason: stored?.reason ?? null, note: stored?.note ?? null, refused: record, saved, adjusted: applied?.adjusted ?? null,
     };
   };
   // E12: only the round's first call may take the longer first-answer limit; the re-ask and the correction keep the normal one.
-  const ask = (messagesToSend: ChatMessage[], firstAnswer = false) =>
-    gateway.chat({ model: project.model, creativity: project.creativity, messages: messagesToSend }, ...(firstAnswer ? [{ firstAnswer: true }] as const : []));
+  // REQ-115 G2–G4: one call, asked on `model`, and recorded. `readable` says whether the reply is usable (the call's `ok`).
+  const ask = async (step: Call["step"], weight: Weight, model: string, messagesToSend: ChatMessage[],
+    readable: (content: string) => boolean, opts: { firstAnswer?: boolean; fallback?: boolean } = {}): Promise<ChatResult> => {
+    const r = await gateway.chat({ model, creativity: project.creativity, messages: messagesToSend }, ...(opts.firstAnswer ? [{ firstAnswer: true }] as const : []));
+    const ok = r.ok && readable(r.content);
+    calls.push({ step, weight, asked: model, model: r.ok ? `${r.provider}/${r.model}` : null, fallback: opts.fallback === true, ok,
+      reason: r.ok ? (ok ? null : "protocol") : r.reason });
+    return r;
+  };
+  // G3: a light step is asked on the light model; when that call fails, or its reply is `bad`, or (`weak`) it is readable but not
+  // good enough, it is asked ONCE more on the project's model — never twice, and never when light IS the project's model.
+  const askLight = async (step: Call["step"], messagesToSend: ChatMessage[], judge: (content: string) => "good" | "weak" | "bad") => {
+    const asked = modelFor("light", project.model);
+    const readable = (c: string) => judge(c) !== "bad";
+    const light = await ask(step, "light", asked, messagesToSend, readable);
+    if (asked === project.model || (light.ok && judge(light.content) === "good")) return { light };
+    return { light, fallback: await ask(step, "light", project.model, messagesToSend, readable, { fallback: true }) };
+  };
   const modelOf = (r: { provider: string; model: string }) => `${r.provider}/${r.model}`;
   // `renamed` = the E11 renames of the parse this answer came from; they sit beside E8's in the plan's adjustments.
   const planOf = (answer: ModelReply, renamed: Adjusted[] = []) => {
@@ -632,7 +654,7 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
               projectId, role: "bot", content: refused.length > 0 ? "" : bot.reply ?? "", model: botModel, creativity: project.creativity,
               roundStatus: bot.status, changeSetId: r.changeSetId, createdAt: await nextMessageTime(tx, projectId, userRow!.createdAt),
               roundReason: bot.reason ?? null, roundNote: bot.note ?? null, roundRefused: refused.length > 0 ? toRecord(refused) : null, roundSaved: refused.length > 0 ? savedItems(entries) : null,
-              roundAdjusted: adjustedRecord(adjusted, entries, r.keys), roundRaw: bot.raw ?? null,
+              roundAdjusted: adjustedRecord(adjusted, entries, r.keys), roundRaw: bot.raw ?? null, roundCalls: callsOrNull(),
             }).returning();
             botRowId = botRow!.id;
           },
@@ -695,7 +717,7 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
 
   // (1) the round · (2) once more only if (1) is not our protocol · (3) one correction only if the server left items out.
   // A transport failure has already been retried inside the client (R8), so it ends the round.
-  const first = await ask(request, true);
+  const first = await ask("first", "heavy", modelFor("heavy", project.model), request, (c) => parseReply(c).ok, { firstAnswer: true });
   if (!first.ok) return fail("bot_could_not_answer", null, project.model, first.reason);
   let answered = first;
   let parsed = parseReply(first.content);
@@ -703,7 +725,8 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
     // E10: the reason is the FIRST failure (the reply was not our protocol); a re-ask that also fails goes in the note. The
     // unreadable reply is kept for the team (a NUL cannot be stored in text).
     const raw = first.content.replaceAll("\u0000", "").slice(0, MAX_RAW_CHARS);
-    const again = await ask(request);
+    const reasked = await askLight("reask", request, (c) => (parseReply(c).ok ? "good" : "bad"));
+    const again = reasked.fallback ?? reasked.light;
     if (!again.ok) return fail("bot_could_not_answer", null, project.model, "protocol", undefined, [], { note: `then ${again.reason}`, raw });
     answered = again;
     parsed = parseReply(again.content);
@@ -716,9 +739,24 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
   let correctionFailed: string | null = null;
   if (plan.refused.length > 0) {
     const named = plan.refused.filter((r) => r.reason !== "depends_on_refused").slice(0, 5).map((r) => `${r.item}: ${r.detail}`).join("; ");
-    const correction = await ask([...request,
+    // G3: the light correction is `weak` when it parses but still leaves items refused.
+    const plans = new Map<string, Plan | null>();
+    const planFor = (content: string) => {
+      if (!plans.has(content)) { const p = parseReply(content); plans.set(content, p.ok ? planOf(p.reply, p.adjusted) : null); }
+      return plans.get(content)!;
+    };
+    const corrected = await askLight("correction", [...request,
       { role: "assistant", content: answered.content },
-      { role: "user", content: `The server refused that answer: ${named}. Reply again with the whole JSON, corrected. Nothing was applied.` }]);
+      { role: "user", content: `The server refused that answer: ${named}. Reply again with the whole JSON, corrected. Nothing was applied.` }],
+      (c) => { const p = planFor(c); return p === null ? "bad" : p.refused.length > 0 ? "weak" : "good"; });
+    // Transport or unreadable → the fallback's answer (if there is one). Readable but still refusing → the fallback's plan only if
+    // it has fewer refused items than the light one's.
+    const lightPlan = corrected.light.ok ? planFor(corrected.light.content) : null;
+    let correction = corrected.light;
+    if (corrected.fallback) {
+      const fbPlan = corrected.fallback.ok ? planFor(corrected.fallback.content) : null;
+      if (lightPlan === null || (fbPlan !== null && fbPlan.refused.length < lightPlan.refused.length)) correction = corrected.fallback;
+    }
     const fixed = correction.ok ? parseReply(correction.content) : null;
     if (correction.ok && fixed?.ok) {
       answered = correction;
@@ -756,5 +794,6 @@ export async function listMessages(db: Db, projectId: string, limit: number): Pr
     roundStatus: r.roundStatus, changeSetId: r.changeSetId, createdAt: r.createdAt.toISOString(),
     roundReason: r.roundReason, roundNote: r.roundNote, roundRefused: (r.roundRefused as RefusedRecord | null) ?? null, roundSaved: r.roundSaved,
     roundAdjusted: (r.roundAdjusted as AdjustedRecord | null) ?? null, roundRaw: r.roundRaw,
+    roundCalls: (r.roundCalls as Call[] | null) ?? null,
   }));
 }

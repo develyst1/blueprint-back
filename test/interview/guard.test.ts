@@ -92,9 +92,9 @@ test("R3: question/contradiction edits and unquoted removes from the model are r
     const { db, pid } = await project();
     const before = await loadSpec(db, pid);
     const reply = answer([{ change, saidBy: "user", sure: true }]);
-    const g = fake([said(reply), said(reply)]);
+    const g = fake([said(reply), said(reply), said(reply)]); // the round, the light correction, and (REQ-115) its fallback
     const r = await runRound(db, g.gateway, pid, { message: "แก้ให้หน่อย" }, { today: TODAY });
-    expect([label, r.status, g.calls()]).toEqual([label, "changes_rejected", 2]);
+    expect([label, r.status, g.calls()]).toEqual([label, "changes_rejected", 3]);
     expect(await loadSpec(db, pid)).toEqual(before);
   }
 });

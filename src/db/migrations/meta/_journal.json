@@ -78,6 +78,13 @@
       "when": 1793329990425,
       "tag": "0010_brave_black_tom",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793349047518,
+      "tag": "0011_majestic_vengeance",
+      "breakpoints": true
     }
   ]
 }

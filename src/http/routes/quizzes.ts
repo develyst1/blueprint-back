@@ -5,6 +5,7 @@ import { askQuestion, latestQuiz, markItem, startQuiz } from "../../quiz/store";
 import { byOf } from "../actor";
 import { errors } from "../errors";
 import { ProjectParams } from "./projects";
+import { CallSchema } from "./rounds";
 
 const QuizItemSchema = z.object({
   id: z.string(),
@@ -18,6 +19,8 @@ const QuizItemSchema = z.object({
   note: z.string().nullable(),
   questionKey: z.string().nullable(),
   createdAt: z.string(),
+  // The gateway calls that made this answer; null on items from before it.
+  calls: z.array(CallSchema).nullable(),
 }).openapi("QuizItem");
 
 const QuizSchema = z.object({

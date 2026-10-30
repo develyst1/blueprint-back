@@ -134,6 +134,8 @@ export const messages = pgTable("messages", {
   // characters of a reply it could not read (for the team; never shown in the UI).
   roundAdjusted: jsonb("round_adjusted"),
   roundRaw: text("round_raw"),
+  // REQ-115 (SPEC-112 G4): every gateway call of the round, in order — step, weight, model asked and answering, fallback, ok, reason.
+  roundCalls: jsonb("round_calls"),
 });
 
 // REQ-005: the understanding quiz. `base_change_sets` = the project's change sets (none of them this quiz's) at start.
@@ -157,6 +159,8 @@ export const quizItems = pgTable("quiz_items", {
   note: text("note"),
   changeSetId: uuid("change_set_id").references(() => changeSets.id),
   model: text("model").notNull(),
+  // REQ-115: the gateway calls that made this answer (same shape as messages.round_calls); null on rows from before it.
+  calls: jsonb("calls"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [unique("quiz_items_quiz_position_unique").on(t.quizId, t.position)]);
 

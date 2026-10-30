@@ -77,6 +77,57 @@
           }
         ]
       },
+      "Call": {
+        "properties": {
+          "asked": {
+            "type": "string"
+          },
+          "fallback": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "step": {
+            "enum": [
+              "first",
+              "reask",
+              "correction",
+              "answer"
+            ],
+            "type": "string"
+          },
+          "weight": {
+            "enum": [
+              "heavy",
+              "light"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "weight",
+          "asked",
+          "model",
+          "fallback",
+          "ok",
+          "reason"
+        ],
+        "type": "object"
+      },
       "Cause": {
         "properties": {
           "kind": {
@@ -463,6 +514,15 @@
                   "null"
                 ]
               },
+              "roundCalls": {
+                "items": {
+                  "$ref": "#/components/schemas/Call"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "roundNote": {
                 "type": [
                   "string",
@@ -503,7 +563,8 @@
               "roundRefused",
               "roundSaved",
               "roundAdjusted",
-              "roundRaw"
+              "roundRaw",
+              "roundCalls"
             ],
             "type": "object"
           }
@@ -1482,6 +1543,15 @@
               "null"
             ]
           },
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/Call"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "createdAt": {
             "type": "string"
           },
@@ -1545,7 +1615,8 @@
           "mark",
           "note",
           "questionKey",
-          "createdAt"
+          "createdAt",
+          "calls"
         ],
         "type": "object"
       },
@@ -1642,6 +1713,15 @@
               "null"
             ]
           },
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/Call"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "changeSetId": {
             "type": [
               "string",
@@ -1727,7 +1807,8 @@
           "note",
           "refused",
           "saved",
-          "adjusted"
+          "adjusted",
+          "calls"
         ],
         "type": "object"
       },
