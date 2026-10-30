@@ -141,3 +141,47 @@ test("a model item that the server drops does not hide an address it held: the a
   expect((await apis(db, pid)).map((a) => a.path)).toEqual(["http://127.0.0.1:3500"]);
   expect((round.adjusted as Adj[] | null)?.filter((a) => a.what === "url_kept")).toHaveLength(1);
 });
+
+// --- SPEC-113 (REQ-116, TASK-142): an address stops at Thai text (E15); "held" means the same address (E16) ---------------
+
+const keptTitles = (round: { adjusted: unknown }) => ((round.adjusted ?? []) as Adj[]).filter((a) => a.what === "url_kept").map((a) => a.title);
+const seeded = async (goal: string) => {
+  const { db, pid } = await project();
+  await applyChangeSet(db, pid, { cause: { kind: "operator" }, changes: [
+    { op: "part.add", ref: "$w", kind: "work", title: "งาน", body: { goal }, origin: { stamp: "team-proposed", date: TODAY } }] });
+  return { db, pid };
+};
+
+test("AC-1 (DEF-2): Thai glued after the address ends it — the part's path is exactly the address", async () => {
+  const { db, pid } = await project();
+  const round = await runRound(db, stub([NOTHING]).gateway, pid, { message: "ช่วยตรวจที่http://127.0.0.1:4500/healthทุก 10 วินาที" }, { today: TODAY });
+  expect((await apis(db, pid)).map((a) => a.path)).toEqual(["http://127.0.0.1:4500/health"]);
+  expect(keptTitles(round)).toEqual(["http://127.0.0.1:4500/health"]);
+});
+
+test("AC-2 (DEF-3): a part holding :31000 does not hide :3100 — one url_kept, the :31000 part is untouched", async () => {
+  const { db, pid } = await project();
+  const content = reply([add("$t", "system", "บริการทดสอบ http://127.0.0.1:31000", {})]);
+  const round = await runRound(db, stub([content]).gateway, pid, { message: "ตรวจ http://127.0.0.1:3100 ด้วยครับ" }, { today: TODAY });
+  expect(round.status).toBe("applied");
+  expect(keptTitles(round)).toEqual(["http://127.0.0.1:3100"]);
+  expect((await apis(db, pid)).map((a) => a.path)).toEqual(["http://127.0.0.1:3100"]);
+  expect((await loadSpec(db, pid)).parts.find((p) => p.kind === "system")!.title).toBe("บริการทดสอบ http://127.0.0.1:31000");
+});
+
+test("held = the same address: …:9/api does not hold …:9 (kept); …:9/ does (the trailing-slash rule)", async () => {
+  const longer = await seeded("เปิดที่ http://h.test:9/api เท่านั้น");
+  const r1 = await runRound(longer.db, stub([NOTHING]).gateway, longer.pid, { message: "ใช้ http://h.test:9" }, { today: TODAY });
+  expect(keptTitles(r1)).toEqual(["http://h.test:9"]);
+  const same = await seeded("เปิดที่ http://h.test:9/ เท่านั้น");
+  const r2 = await runRound(same.db, stub([NOTHING]).gateway, same.pid, { message: "ใช้ http://h.test:9" }, { today: TODAY });
+  expect(keptTitles(r2)).toEqual([]);
+  expect(await apis(same.db, same.pid)).toEqual([]);
+});
+
+test("Thai glued on both sides: ดูที่http://h.test:7/xแล้วนะ → http://h.test:7/x", async () => {
+  const { db, pid } = await project();
+  const round = await runRound(db, stub([NOTHING]).gateway, pid, { message: "ดูที่http://h.test:7/xแล้วนะ" }, { today: TODAY });
+  expect((await apis(db, pid)).map((a) => a.path)).toEqual(["http://h.test:7/x"]);
+  expect(keptTitles(round)).toEqual(["http://h.test:7/x"]);
+});

@@ -250,12 +250,16 @@ function withoutBadOptionals(kind: unknown, body: unknown): { body: Record<strin
 // SPEC-111 E14: the http(s) addresses in the user's message that need a server item — not held by a non-question part, either
 // live or in the entries kept so far (a question's text does not hold one). Trailing `.,;:!?` stripped, only what `isApiPath`
 // accepts, deduplicated, at most MAX_URLS. The caller numbers each with the lowest `$url_<n>` not yet used in this attempt's entries.
-const URL_RE = /https?:\/\/[^\s<>"'()[\]{}]+/g;
+// SPEC-113 E15: an address is ASCII URL characters only, so Thai text glued to it ends it. E16: "held" means the same address
+// (set membership on the form without a trailing `/`), not a substring.
+const URL_RE = /https?:\/\/[A-Za-z0-9\-._~:/?#@!$&*+,;=%]+/g;
 const MAX_URLS = 20;
 const noSlash = (u: string) => u.replace(/\/+$/, "");
+const stripped = (text: string) => [...text.matchAll(URL_RE)].map((m) => m[0].replace(/[.,;:!?]+$/, ""));
+const addressesIn = (text: string) => stripped(text).map(noSlash);
 function uncaughtUrls(message: string | undefined, live: Part[], entries: Entry[]): string[] {
   if (!message) return [];
-  const all = [...new Set([...message.matchAll(URL_RE)].map((m) => m[0].replace(/[.,;:!?]+$/, "")).filter(isApiPath))].slice(0, MAX_URLS);
+  const all = [...new Set(stripped(message).filter(isApiPath))].slice(0, MAX_URLS);
   if (all.length === 0) return [];
   const kindOf = new Map(live.map((p) => [p.key, p.kind as string]));
   for (const e of entries) if (e.change.op === "part.add") kindOf.set(e.change.ref, e.change.kind);
@@ -264,8 +268,8 @@ function uncaughtUrls(message: string | undefined, live: Part[], entries: Entry[
     if (c.op === "part.add" && c.kind !== "question") held.push(`${c.title} ${JSON.stringify(c.body ?? {})}`);
     else if (c.op === "part.update" && kindOf.get(c.key) !== "question") held.push(`${c.title ?? ""} ${JSON.stringify(c.body ?? {})}`);
   }
-  const text = held.join("\n");
-  return all.filter((url) => !text.includes(noSlash(url)));
+  const same = new Set(addressesIn(held.join("\n")));
+  return all.filter((url) => !same.has(noSlash(url)));
 }
 
 function build(raw: ModelReply, ctx: {
