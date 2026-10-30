@@ -15,6 +15,7 @@ export type PartContext = {
   projectId: string; version: number; confirmedAt: string; part: Part;
   neighbours: Neighbour[]; decisions: Part[]; flows: Flow[]; questions: Part[];
   relatedDecisions: RelatedDecision[]; relatedDecisionsMore: boolean;
+  requirements: Part[]; // SPEC-115 / REQ-118: every requirement of the spec, by key — the same for every part
 };
 // SPEC-106 § REQ-112: a decision that covers a step the part sits in, or a work of its flows, and is not one of `decisions`.
 export type RelatedDecision = { via: string; decision: Part };
@@ -89,6 +90,9 @@ export function contextIn(spec: { parts: Part[]; links: Link[] }, key: string): 
   for (const t of touched) for (const d of to("covers", t)) if (!own.has(d) && byKey.get(d)?.kind === "decision" && !via.has(d)) via.set(d, t);
   const related = [...via.keys()].sort(compareKeys).map((d) => ({ via: via.get(d)!, decision: byKey.get(d)! }));
 
+  // SPEC-115 / REQ-118: a requirement stands alone (no link), so it reaches a card by being listed on every context.
+  const requirements = spec.parts.filter((p) => p.kind === "requirement").sort((a, b) => compareKeys(a.key, b.key));
+
   return { part, neighbours, decisions, flows, questions,
-    relatedDecisions: related.slice(0, MAX_RELATED_DECISIONS), relatedDecisionsMore: related.length > MAX_RELATED_DECISIONS };
+    relatedDecisions: related.slice(0, MAX_RELATED_DECISIONS), relatedDecisionsMore: related.length > MAX_RELATED_DECISIONS, requirements };
 }

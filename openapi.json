@@ -1402,6 +1402,12 @@
           "relatedDecisionsMore": {
             "type": "boolean"
           },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array"
+          },
           "version": {
             "type": "integer"
           }
@@ -1416,7 +1422,8 @@
           "flows",
           "questions",
           "relatedDecisions",
-          "relatedDecisionsMore"
+          "relatedDecisionsMore",
+          "requirements"
         ],
         "type": "object"
       },
@@ -2351,6 +2358,12 @@
           "relatedDecisionsMore": {
             "type": "boolean"
           },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array"
+          },
           "revision": {
             "type": "integer"
           },
@@ -2370,6 +2383,7 @@
           "questions",
           "relatedDecisions",
           "relatedDecisionsMore",
+          "requirements",
           "revision",
           "savedAt",
           "latestLabel"
