@@ -25,6 +25,15 @@ for (const kind of Object.keys(PART_KINDS) as PartKind[]) {
   });
 }
 
+// SPEC-111 E13: an api part's path is a "/path" or a full http(s) URL; a bare host:port, another scheme, or no host is refused.
+test("api.path: a path or a full http(s) URL is valid; host:port, ftp:// and an empty host are not", () => {
+  const ok = (path: string) => PART_KINDS.api.body.safeParse({ method: "GET", path }).success;
+  expect(["/rooms", "http://127.0.0.1:4200/health", "https://x.example/a", "127.0.0.1:3900", "ftp://h/x", "http://"].map(ok))
+    .toEqual([true, true, true, false, false, false]);
+  const refused = PART_KINDS.api.body.safeParse({ method: "GET", path: "127.0.0.1:3900" });
+  expect(!refused.success && refused.error.issues[0]!.message).toBe('must start with "/" or be a full http(s) URL');
+});
+
 test("body defaults are filled in", () => {
   expect(PART_KINDS.step.body.parse({})).toEqual({ ends: false });
   expect(PART_KINDS.question.body.parse({ text: "x" })).toEqual({ text: "x", status: "open", cases: [] });

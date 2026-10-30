@@ -1,0 +1,12 @@
+{
+  "_note": "REBUILT, not recorded (SPEC-111 / TASK-132): the model's own round-1 bodies were never stored. ref and title are from TEST-107 round 4 ac1-round1 `refused`; method GET and each path = the service URL the user wrote in the spec. The 4 `covers` links of the live answer are left out (their decision part was not stored either).",
+  "reply": "บันทึกให้แล้วครับ",
+  "changes": [
+    { "change": { "op": "part.add", "ref": "$api_blueprint_api_health", "kind": "api", "title": "Blueprint API Health", "body": { "method": "GET", "path": "http://127.0.0.1:4200/health" } }, "saidBy": "user", "sure": true },
+    { "change": { "op": "part.add", "ref": "$api_blueprint_web", "kind": "api", "title": "Blueprint เว็บ", "body": { "method": "GET", "path": "http://127.0.0.1:3100" } }, "saidBy": "user", "sure": true },
+    { "change": { "op": "part.add", "ref": "$api_caw_api_health", "kind": "api", "title": "CAW API Health", "body": { "method": "GET", "path": "http://127.0.0.1:4500/health" } }, "saidBy": "user", "sure": true },
+    { "change": { "op": "part.add", "ref": "$api_caw_web", "kind": "api", "title": "CAW เว็บ", "body": { "method": "GET", "path": "http://127.0.0.1:3500" } }, "saidBy": "user", "sure": true }
+  ],
+  "questions": [],
+  "contradictions": []
+}

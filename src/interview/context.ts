@@ -49,6 +49,7 @@ export function kindsBlock(): string {
     ...partLines,
     "kind ที่ใช้ได้กับ link.add (from → to):",
     ...linkLines,
+    "api.path คือ path ของ API นี้ เริ่มด้วย / (เช่น /rooms) หรือ URL เต็มของบริการอื่น ขึ้นต้น http:// หรือ https:// (เช่น http://127.0.0.1:4200/health)",
     "ref คือ $ ตามด้วย a-z A-Z 0-9 _ เท่านั้น เช่น $step_view (ห้ามมี - หรือช่องว่าง)",
     "ห้ามใช้ kind อื่นนอกจากนี้ — ถ้าไม่เข้ากับ kind ไหน ให้ถามเป็น question",
   ].join("\n");

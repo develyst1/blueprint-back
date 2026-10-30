@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+// SPEC-111 E13: an api part's `path` is a path ("/rooms") or the full http(s) URL of another service.
+const isApiPath = (v: string): boolean => {
+  if (v.startsWith("/")) return true;
+  try { const u = new URL(v); return (u.protocol === "http:" || u.protocol === "https:") && u.hostname !== ""; } catch { return false; }
+};
+
 // The one place that says which kinds of part and link exist. A new kind is an entry here,
 // never a table change (REQ-001 R2). Every body is strict: an unknown field is an error.
 export const PART_KINDS = {
@@ -25,7 +31,7 @@ export const PART_KINDS = {
     prefix: "API",
     body: z.strictObject({
       method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
-      path: z.string().startsWith("/"),
+      path: z.string().refine(isApiPath, { message: 'must start with "/" or be a full http(s) URL' }),
       request: z.unknown().optional(),
       responses: z.array(z.strictObject({
         status: z.number().int().min(100).max(599),
