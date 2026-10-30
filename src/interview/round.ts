@@ -5,7 +5,7 @@ import type { Db } from "../db/client";
 import { messages, projects, sources } from "../db/schema";
 import type { ChatMessage, Gateway } from "../gateway/client";
 import { NotFound, ValidationError } from "../spec/errors";
-import { LINK_KINDS, PART_KINDS, type PartKind } from "../spec/registry";
+import { isApiPath, LINK_KINDS, PART_KINDS, type PartKind } from "../spec/registry";
 import { applyChangeSet, loadSpec } from "../spec/store";
 import { computeStuck } from "../spec/stuck";
 import type { Change, Link, Origin, Part } from "../spec/types";
@@ -38,7 +38,8 @@ export const MAX_RAW_CHARS = 4000;
 // SPEC-105 E8/E9: what the server changed in an item it stored. `ref_renamed` (from → to) · `body_defaulted` (a part.add with no
 // body) · `wrapped_in_list` (field: a string where a list of strings goes) · `field_dropped` (field: an optional field that was wrong).
 // E11: `op_renamed` (from `type` → to `op`): a change that carried its op under `type`.
-export type Adjusted = { item: string; what: "ref_renamed" | "body_defaulted" | "wrapped_in_list" | "field_dropped" | "op_renamed"; field?: string; from?: string; to?: string };
+export type Adjusted = { item: string; what: "ref_renamed" | "body_defaulted" | "wrapped_in_list" | "field_dropped" | "op_renamed" | "url_kept"; field?: string; from?: string; to?: string };
+// E14: `url_kept`: an address the user wrote that no part held, stored by the server as an `api` part (`item` = `server:url <n>`).
 // …as recorded: with `title` / `key` / `ref` of the stored item, exactly as a `round_refused` entry has them, so a line can name the part.
 export type AdjustedEntry = Adjusted & { title: string | null; key: string | null; ref: string | null };
 export type AdjustedRecord = (AdjustedEntry | { item: "more"; count: number })[];
@@ -158,12 +159,14 @@ function cascade(entries: Entry[], dead: Set<string>): { kept: Entry[]; dropped:
 // decisions, suggestions and the link rows of one item are not counted.
 const savedItems = (entries: Entry[]) => new Set(entries.filter((e) => /^(changes|questions|contradictions)\[/.test(e.item)).map((e) => e.item)).size;
 // What was adjusted in the items that are in the set (an item that was refused or dropped afterwards leaves no trace here).
-function adjustedRecord(adjusted: Adjusted[], entries: Entry[]): AdjustedRecord | null {
+function adjustedRecord(adjusted: Adjusted[], entries: Entry[], keys: Record<string, string> = {}): AdjustedRecord | null {
   const stored = new Set(entries.map((e) => e.item));
   const named = (a: Adjusted): AdjustedEntry => {
     const c = (entries.find((e) => e.item === a.item)?.change ?? {}) as Record<string, unknown>;
     const { item, what, ...rest } = a;
-    return { item, what, title: short(c.title, MAX_TITLE_CHARS), key: short(c.key, 40), ref: short(c.ref, 40), ...rest };
+    // a `url_kept` part is added by the server, so its key is the one the store gave its `$ref`
+    const key = a.what === "url_kept" && typeof c.ref === "string" ? short(keys[c.ref], 40) : short(c.key, 40);
+    return { item, what, title: short(c.title, MAX_TITLE_CHARS), key, ref: short(c.ref, 40), ...rest };
   };
   const kept = adjusted.filter((a) => stored.has(a.item)).map(named);
   if (kept.length === 0) return null;
@@ -242,6 +245,27 @@ function withoutBadOptionals(kind: unknown, body: unknown): { body: Record<strin
   }
   const rest = Object.fromEntries(Object.entries(body as Record<string, unknown>).filter(([k]) => !dropped.has(k)));
   return schema.safeParse(rest).success ? { body: rest, dropped: [...dropped] } : null;
+}
+
+// SPEC-111 E14: the http(s) addresses in the user's message that need a server item — not held by a non-question part, either
+// live or in the entries kept so far (a question's text does not hold one). Trailing `.,;:!?` stripped, only what `isApiPath`
+// accepts, deduplicated, at most MAX_URLS. The caller numbers each with the lowest `$url_<n>` not yet used in this attempt's entries.
+const URL_RE = /https?:\/\/[^\s<>"'()[\]{}]+/g;
+const MAX_URLS = 20;
+const noSlash = (u: string) => u.replace(/\/+$/, "");
+function uncaughtUrls(message: string | undefined, live: Part[], entries: Entry[]): string[] {
+  if (!message) return [];
+  const all = [...new Set([...message.matchAll(URL_RE)].map((m) => m[0].replace(/[.,;:!?]+$/, "")).filter(isApiPath))].slice(0, MAX_URLS);
+  if (all.length === 0) return [];
+  const kindOf = new Map(live.map((p) => [p.key, p.kind as string]));
+  for (const e of entries) if (e.change.op === "part.add") kindOf.set(e.change.ref, e.change.kind);
+  const held = live.filter((p) => p.kind !== "question").map((p) => `${p.title} ${JSON.stringify(p.body)}`);
+  for (const { change: c } of entries) {
+    if (c.op === "part.add" && c.kind !== "question") held.push(`${c.title} ${JSON.stringify(c.body ?? {})}`);
+    else if (c.op === "part.update" && kindOf.get(c.key) !== "question") held.push(`${c.title ?? ""} ${JSON.stringify(c.body ?? {})}`);
+  }
+  const text = held.join("\n");
+  return all.filter((url) => !text.includes(noSlash(url)));
 }
 
 function build(raw: ModelReply, ctx: {
@@ -573,6 +597,7 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
     bot: { status: RoundStatus; reply: string | null; reason?: string; note?: string; raw?: string } = { status: "applied", reply: null },
     carried: Refused[] = []): Promise<Applied> => {
     let entries = plan.entries;
+    const adjusted = [...plan.adjusted];
     const refused = [...plan.refused, ...carried];
     // The round's one code, for when nothing of the model's answer is left: the first refusal that was not a knock-on.
     const refusal = (): Refusal => {
@@ -581,6 +606,15 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
       return { error: `${root.item}: ${root.detail}`, reason, ...(root.note !== undefined ? { note: root.note } : {}) };
     };
     for (;;) {
+      // E14: before each attempt, so it also sees the items the last attempt dropped.
+      for (const url of uncaughtUrls(message, spec.parts, entries)) {
+        const used = new Set(entries.flatMap((e) => (e.change.op === "part.add" ? [e.change.ref] : [])));
+        let n = 1;
+        while (used.has(`$url_${n}`)) n++;
+        const item = `server:url ${n}`;
+        entries = [...entries, { item, change: { op: "part.add", kind: "api", ref: `$url_${n}`, title: url.slice(0, MAX_TITLE_CHARS), body: { method: "GET", path: url }, origin: { stamp: "team-proposed", date: opts.today } } }];
+        adjusted.push({ item, what: "url_kept" });
+      }
       if (bot.status === "applied" && refused.length > 0 && !entries.some((e) => !isServer(e))) return { status: "invalid", ...refusal(), refused };
       if (entries.length === 0) return { status: "no_changes", contradictions: plan.contradictionRefs.filter((r) => !r.ref.startsWith("$")).map((r) => r.ref) };
       try {
@@ -594,7 +628,7 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
               projectId, role: "bot", content: refused.length > 0 ? "" : bot.reply ?? "", model: botModel, creativity: project.creativity,
               roundStatus: bot.status, changeSetId: r.changeSetId, createdAt: await nextMessageTime(tx, projectId, userRow!.createdAt),
               roundReason: bot.reason ?? null, roundNote: bot.note ?? null, roundRefused: refused.length > 0 ? toRecord(refused) : null, roundSaved: refused.length > 0 ? savedItems(entries) : null,
-              roundAdjusted: adjustedRecord(plan.adjusted, entries), roundRaw: bot.raw ?? null,
+              roundAdjusted: adjustedRecord(adjusted, entries, r.keys), roundRaw: bot.raw ?? null,
             }).returning();
             botRowId = botRow!.id;
           },
@@ -607,7 +641,7 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
         };
         const stored = new Set(entries.map((e) => e.item));
         return {
-          status: "applied", changeSetId, botRowId, refused: refused.length > 0 ? toRecord(refused) : null, saved: refused.length > 0 ? savedItems(entries) : null, adjusted: adjustedRecord(plan.adjusted, entries),
+          status: "applied", changeSetId, botRowId, refused: refused.length > 0 ? toRecord(refused) : null, saved: refused.length > 0 ? savedItems(entries) : null, adjusted: adjustedRecord(adjusted, entries, keys),
           questions: plan.questionRefs.filter((r) => stored.has(r.item)).map((r) => keyOf(r.ref)),
           contradictions: plan.contradictionRefs.filter((r) => !r.ref.startsWith("$") || stored.has(r.item)).map((r) => (r.ref.startsWith("$") ? keyOf(r.ref) : r.ref)),
         };
@@ -632,7 +666,8 @@ export async function runRound(db: Db, gateway: Gateway, projectId: string,
 
   // D-023: the bot failed, but what the user decided this turn (accept · answers · park) is still applied — one set,
   // caused by the user row, with the failure's bot row. A turn with no decisions changes nothing, as before.
-  const decided = accepted.length + ownAnswers.length + parked.length > 0;
+  // E14: an address the server will keep counts as a decision too.
+  const decided = accepted.length + ownAnswers.length + parked.length > 0 || uncaughtUrls(message, spec.parts, []).length > 0;
   // REQ-110 E2: a rejected round never shows the model's words (they were written as though the changes would land, so they say
   // "saved"). It keeps a code instead. A bot that could not answer keeps the gateway's reason (E4). `refusal` = the rejected
   // round's code, from the refusal that ended it; `refused` = the model items left out (E6).

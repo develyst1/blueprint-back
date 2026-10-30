@@ -42,7 +42,8 @@
                   "body_defaulted",
                   "wrapped_in_list",
                   "field_dropped",
-                  "op_renamed"
+                  "op_renamed",
+                  "url_kept"
                 ],
                 "type": "string"
               }

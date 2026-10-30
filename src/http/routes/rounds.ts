@@ -20,7 +20,7 @@ const RefusedItemSchema = z.union([
 // REQ-110 round 3 (SPEC-105 E8/E9): what the server changed in an item it stored, or — last, past 50 — how many more.
 const AdjustedItemSchema = z.union([
   z.object({
-    item: z.string(), what: z.enum(["ref_renamed", "body_defaulted", "wrapped_in_list", "field_dropped", "op_renamed"]),
+    item: z.string(), what: z.enum(["ref_renamed", "body_defaulted", "wrapped_in_list", "field_dropped", "op_renamed", "url_kept"]),
     // The stored item, as a refused entry names it.
     title: z.string().nullable(), key: z.string().nullable(), ref: z.string().nullable(),
     field: z.string().optional(), from: z.string().optional(), to: z.string().optional(),

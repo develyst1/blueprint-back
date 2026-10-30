@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // SPEC-111 E13: an api part's `path` is a path ("/rooms") or the full http(s) URL of another service.
-const isApiPath = (v: string): boolean => {
+export const isApiPath = (v: string): boolean => {
   if (v.startsWith("/")) return true;
   try { const u = new URL(v); return (u.protocol === "http:" || u.protocol === "https:") && u.hostname !== ""; } catch { return false; }
 };

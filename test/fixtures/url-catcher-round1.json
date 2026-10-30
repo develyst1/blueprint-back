@@ -1,0 +1,450 @@
+{
+ "_note": "REBUILT, not recorded (SPEC-111 Round 2 / TASK-136): the model's own round-1 answer was never stored (roundRaw null). Built from TEST-111 ac1-round1-spec.json — every stored non-question part as a part.add, its links as link.add, the open questions as questions[]. There is NO api part: the model left every address out.",
+ "reply": "บันทึกให้แล้วครับ",
+ "changes": [
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$DATA_001",
+    "kind": "data",
+    "title": "สถานะบริการ",
+    "body": {
+     "fields": [
+      {
+       "name": "serviceName",
+       "note": "ชื่อบริการที่แสดง",
+       "type": "string"
+      },
+      {
+       "name": "url",
+       "note": "ปลายทางที่ใช้ตรวจสอบ",
+       "type": "string"
+      },
+      {
+       "name": "status",
+       "note": "ทำงาน หรือ ไม่ตอบ",
+       "type": "string"
+      },
+      {
+       "name": "responseTimeMs",
+       "note": "เวลาตอบสนองหน่วยมิลลิวินาที",
+       "type": "number"
+      },
+      {
+       "name": "checkedAt",
+       "note": "เวลาที่เช็คล่าสุด",
+       "type": "datetime"
+      }
+     ]
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$DEC_001",
+    "kind": "decision",
+    "title": "เกณฑ์บริการไม่ตอบ",
+    "body": {
+     "rule": "หากปลายทางไม่ตอบกลับภายใน 3 วินาที ให้กำหนดสถานะเป็น “ไม่ตอบ”",
+     "cases": [
+      "ตอบกลับภายใน 3 วินาที: ประเมินสถานะจากผลการตอบกลับ",
+      "เกิน 3 วินาทีหรือเกิดข้อผิดพลาดเครือข่าย: แสดง “ไม่ตอบ” สีแดง"
+     ]
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$DEC_002",
+    "kind": "decision",
+    "title": "รอบการตรวจสอบ",
+    "body": {
+     "rule": "ตรวจสอบทุกบริการอัตโนมัติทุก 10 วินาที และตรวจสอบทั้งหมดทันทีเมื่อผู้ใช้กดปุ่ม “เช็คตอนนี้”",
+     "cases": [
+      "เปิดหน้าเว็บ: เริ่มตรวจสอบสถานะ",
+      "ครบ 10 วินาที: ตรวจสอบซ้ำ",
+      "กด “เช็คตอนนี้”: ตรวจสอบซ้ำทันที"
+     ]
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$INT_001",
+    "kind": "interaction",
+    "title": "แสดงสถานะบริการ",
+    "body": {
+     "text": "ระบบแสดงรายการบริการ สถานะ เวลาตอบสนอง และเวลาที่เช็คล่าสุดบนหน้าเดียว"
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$INT_002",
+    "kind": "interaction",
+    "title": "ตรวจสอบสถานะทั้งหมด",
+    "body": {
+     "text": "ระบบตรวจสอบบริการทั้ง 4 รายการเมื่อเปิดหน้า ทุก 10 วินาที หรือเมื่อกด “เช็คตอนนี้”"
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$INT_003",
+    "kind": "interaction",
+    "title": "อัปเดตผลบนแดชบอร์ด",
+    "body": {
+     "text": "ระบบอัปเดตสถานะ เวลาตอบสนอง และเวลาที่เช็คล่าสุดของทุกบริการบนหน้าเว็บ"
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$ROLE_001",
+    "kind": "role",
+    "title": "ผู้ดูสถานะระบบ",
+    "body": {
+     "duty": "เปิดหน้าแดชบอร์ดเพื่อดูสถานะและสั่งเช็คบริการทันที"
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$SCR_001",
+    "kind": "screen",
+    "title": "หน้า I-Space Health Board",
+    "body": {
+     "fields": [],
+     "states": [
+      {
+       "name": "working",
+       "note": "แสดง “ทำงาน” สีเขียว พร้อมเวลาตอบเป็น ms และเวลาที่เช็คล่าสุด"
+      },
+      {
+       "name": "unresponsive",
+       "note": "แสดง “ไม่ตอบ” สีแดง เมื่อเช็คไม่สำเร็จหรือเกินเวลา 3 วินาที"
+      },
+      {
+       "name": "checking",
+       "note": "กำลังตรวจสอบสถานะบริการ"
+      }
+     ],
+     "actions": [
+      {
+       "name": "check_now",
+       "label": "เช็คตอนนี้"
+      }
+     ]
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$STEP_001",
+    "kind": "step",
+    "title": "ดูสถานะบริการ",
+    "body": {
+     "ends": false
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$STEP_002",
+    "kind": "step",
+    "title": "ตรวจสอบบริการ",
+    "body": {
+     "ends": false
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$STEP_003",
+    "kind": "step",
+    "title": "อัปเดตผลการตรวจสอบ",
+    "body": {
+     "ends": true
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$SYS_001",
+    "kind": "system",
+    "title": "I-Space Health Board",
+    "body": {}
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "part.add",
+    "ref": "$WRK_001",
+    "kind": "work",
+    "title": "I-Space Health Board",
+    "body": {
+     "goal": "ผู้ใช้ต้องการหน้าเว็บภาษาไทยหน้าเดียวบน http://127.0.0.1:3900 เพื่อดูสถานะปัจจุบันของบริการ I-Space 4 รายการ เช็คอัตโนมัติทุก 10 วินาทีหรือสั่งเช็คเองได้ โดยไม่ต้องล็อกอิน ไม่ใช้ฐานข้อมูล และไม่เก็บประวัติ"
+    }
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "covers",
+    "from": "$DEC_001",
+    "to": "$INT_002"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "covers",
+    "from": "$DEC_002",
+    "to": "$INT_002"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "from",
+    "from": "$INT_001",
+    "to": "$SCR_001"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "to",
+    "from": "$INT_001",
+    "to": "$ROLE_001"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "carries",
+    "from": "$INT_002",
+    "to": "$DATA_001"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "from",
+    "from": "$INT_002",
+    "to": "$SCR_001"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "to",
+    "from": "$INT_002",
+    "to": "$SYS_001"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "carries",
+    "from": "$INT_003",
+    "to": "$DATA_001"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "from",
+    "from": "$INT_003",
+    "to": "$SYS_001"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "to",
+    "from": "$INT_003",
+    "to": "$SCR_001"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "shows",
+    "from": "$SCR_001",
+    "to": "$DATA_001"
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "has_interaction",
+    "from": "$STEP_001",
+    "to": "$INT_001",
+    "position": 1
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "next",
+    "from": "$STEP_001",
+    "to": "$STEP_002",
+    "position": 1
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "has_interaction",
+    "from": "$STEP_002",
+    "to": "$INT_002",
+    "position": 1
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "next",
+    "from": "$STEP_002",
+    "to": "$STEP_003",
+    "position": 1
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "has_interaction",
+    "from": "$STEP_003",
+    "to": "$INT_003",
+    "position": 1
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "has_step",
+    "from": "$WRK_001",
+    "to": "$STEP_001",
+    "position": 1
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "has_step",
+    "from": "$WRK_001",
+    "to": "$STEP_002",
+    "position": 2
+   },
+   "saidBy": "inferred",
+   "sure": true
+  },
+  {
+   "change": {
+    "op": "link.add",
+    "kind": "has_step",
+    "from": "$WRK_001",
+    "to": "$STEP_003",
+    "position": 3
+   },
+   "saidBy": "inferred",
+   "sure": true
+  }
+ ],
+ "questions": [
+  {
+   "text": "ให้แอปที่พอร์ต 3900 ตรวจสอบปลายทางผ่านฝั่งเซิร์ฟเวอร์ของแอป (server-side proxy/checker) หรือให้เบราว์เซอร์เรียกแต่ละ URL โดยตรง? การเรียกจากเบราว์เซอร์อาจติดข้อจำกัด CORS ของบริการปลายทาง",
+   "proposedAnswer": "ให้ฝั่งเซิร์ฟเวอร์ของ I-Space Health Board เป็นผู้ตรวจสอบปลายทาง แล้วหน้าเว็บเรียกผลสถานะจากแอปที่พอร์ต 3900",
+   "cases": [
+    "หลีกเลี่ยงปัญหา CORS ระหว่างพอร์ต 3900 กับพอร์ต 3100, 3500, 4200 และ 4500",
+    "ซ่อนรายละเอียดการตรวจสอบไว้ในแอปเดียว",
+    "หากทุกบริการตั้งค่า CORS รองรับแล้ว สามารถเลือกให้เบราว์เซอร์ตรวจสอบโดยตรงได้"
+   ],
+   "about": "$SYS_001"
+  },
+  {
+   "text": "สำหรับ Blueprint เว็บและ CAW เว็บ ซึ่งระบุเป็น URL หน้าเว็บโดยไม่มี /health ให้ถือว่า “ทำงาน” เมื่อได้รับ HTTP สถานะ 2xx หรือไม่?",
+   "proposedAnswer": "ถือว่า “ทำงาน” เมื่อ URL ตอบกลับด้วย HTTP 2xx ภายใน 3 วินาที; สถานะอื่นหรือเกิดข้อผิดพลาดให้เป็น “ไม่ตอบ”",
+   "cases": [
+    "Blueprint เว็บ: http://127.0.0.1:3100",
+    "CAW เว็บ: http://127.0.0.1:3500",
+    "Blueprint API และ CAW API ใช้ปลายทาง /health ตามที่ระบุ"
+   ],
+   "about": "$DEC_001"
+  }
+ ],
+ "contradictions": [],
+ "suggestions": []
+}
