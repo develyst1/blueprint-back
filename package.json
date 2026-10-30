@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts",
     "test": "bun test",
     "db:generate": "drizzle-kit generate",
     "openapi:emit": "bun run src/scripts/emit-openapi.ts",
