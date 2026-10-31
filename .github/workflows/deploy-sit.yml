@@ -26,7 +26,8 @@ jobs:
       - run: bun run --if-present typecheck
       - run: bun run --if-present lint
       # The unit tests; a failure stops the deploy (the live version stays). Same command as TASK-173 DoD 8.
-      - run: bun test
+      # 20 s per test: on the GitHub runner 5 tests took ~6 s and failed bun's 5 s default (run 41211570320).
+      - run: bun test --timeout 20000
         env:
           DATABASE_URL: pglite:memory
       - run: bun run build
