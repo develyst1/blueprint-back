@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --compile --minify --target=bun-linux-x64 --outfile dist/blueprint-back",
     "test": "bun test",
     "db:generate": "drizzle-kit generate",
     "openapi:emit": "bun run src/scripts/emit-openapi.ts",
