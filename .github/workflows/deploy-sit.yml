@@ -25,6 +25,10 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run --if-present typecheck
       - run: bun run --if-present lint
+      # The unit tests; a failure stops the deploy (the live version stays). Same command as TASK-173 DoD 8.
+      - run: bun test
+        env:
+          DATABASE_URL: pglite:memory
       - run: bun run build
       - run: tar -czf app.tgz --mode=755 -C dist blueprint-back
       - name: deploy
